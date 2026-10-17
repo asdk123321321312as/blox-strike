@@ -1,7 +1,7 @@
 --===================================================================
---  BloxStrike ESP + AIM  v5  |  Lua (Roblox / Luau)  |  Venice
---  RShift — ESP вкл/выкл      Q (удерживать) — aimbot
---  F2 — дамп                  F3 — перезагрузить настройки
+--  BloxStrike ESP v6  (без аимбота)  |  Venice
+--  RShift — ESP вкл/выкл
+--  F2 — краткий дамп        F3 — ПОИСК ИСТОЧНИКА ПОЗИЦИЙ (радар)
 --===================================================================
 
 local Players          = game:GetService("Players")
@@ -9,6 +9,8 @@ local RunService       = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local HttpService      = game:GetService("HttpService")
 local Workspace        = game:GetService("Workspace")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local CoreGui          = game:GetService("CoreGui")
 
 local LocalPlayer = Players.LocalPlayer
 local Camera      = Workspace.CurrentCamera
@@ -18,9 +20,13 @@ local Camera      = Workspace.CurrentCamera
 --===================================================================
 local CONFIG = {
 	Enabled      = true,
-	TeamCheck    = true,     -- не рисовать своих
+	TeamCheck    = true,
 	SkipSpectators = true,
 	MaxDist      = 1500,
+
+	-- сглаживание, чтобы квадрат не дёргался
+	Smooth       = 0.35,   -- 1 = без сглаживания, меньше = плавнее
+	Linger       = 0.45,   -- сколько секунд держать квадрат после пропажи модели
 
 	Box          = true,
 	Name         = true,
@@ -31,7 +37,7 @@ local CONFIG = {
 	Tracer       = true,
 	Highlight    = true,
 	Skeleton     = false,
-	WallCheck    = false,    -- рисовать только видимых
+	WallCheck    = false,
 
 	BoxThickness = 1.5,
 	TextSize     = 14,
@@ -41,16 +47,6 @@ local CONFIG = {
 	HealthColor  = Color3.fromRGB(60, 255, 130),
 	ArmorColor   = Color3.fromRGB(90, 170, 255),
 	BackColor    = Color3.fromRGB(20, 20, 20),
-
-	Aimbot = {
-		Enabled     = true,
-		Key         = Enum.KeyCode.Q,   -- удерживать для наведения
-		FOV         = 130,              -- радиус в пикселях
-		Smooth      = 0.35,             -- 1 = мгновенно
-		VisibleOnly = true,
-		DrawFOV     = true,
-		Bone        = "Head",
-	},
 }
 
 --===================================================================
@@ -65,6 +61,16 @@ local function newDraw(class, props)
 	for k, v in pairs(props) do d[k] = v end
 	d.Visible = false
 	return d
+end
+
+local function findDeep(root, name)
+	if not root then return nil end
+	local d = root:FindFirstChild(name)
+	if d then return d end
+	for _, x in ipairs(root:GetDescendants()) do
+		if x.Name == name then return x end
+	end
+	return nil
 end
 
 local function getChar(plr)
@@ -121,15 +127,14 @@ local function getWeapon(plr)
 end
 
 --===================================================================
--- ВИДИМОСТЬ (Raycast)
+-- ВИДИМОСТЬ
 --===================================================================
 local rp = RaycastParams.new()
 rp.FilterType = Enum.RaycastFilterType.Exclude
 
 local function isVisible(char, part)
 	local ignore = {}
-	local lc = LocalPlayer.Character
-	if lc then table.insert(ignore, lc) end
+	if LocalPlayer.Character then table.insert(ignore, LocalPlayer.Character) end
 	rp.FilterDescendantsInstances = ignore
 	local hit = Workspace:Raycast(Camera.CFrame.Position, part.Position - Camera.CFrame.Position, rp)
 	return hit == nil or hit.Instance:IsDescendantOf(char)
@@ -151,6 +156,7 @@ local SKEL = {
 --===================================================================
 local function hide(t)
 	t.box.Visible = false; t.name.Visible = false; t.dist.Visible = false
+	t.info.Visible = false
 	t.hpBg.Visible = false; t.hpBar.Visible = false
 	t.arBg.Visible = false; t.arBar.Visible = false
 	t.tracer.Visible = false
@@ -178,6 +184,7 @@ local function createESP(plr)
 		tracer = newDraw("Line",   {Thickness = 1.5, Color = CONFIG.EnemyColor, ZIndex = 2}),
 		hl     = nil,
 		skel   = {},
+		last   = nil,   -- {top = Vector3, bot = Vector3, t = tick()}
 	}
 end
 
@@ -193,6 +200,28 @@ local function destroyESP(plr)
 end
 
 --===================================================================
+-- СГЛАЖИВАНИЕ ПОЗИЦИЙ (лечит дёрганье и пропадание)
+--===================================================================
+local function getSmoothedPositions(t, char, head, root)
+	local topW = head.Position + Vector3.new(0, head.Size.Y / 2, 0)
+
+	local lf, rf = char:FindFirstChild("LeftFoot"), char:FindFirstChild("RightFoot")
+	local bottomY = (lf and rf)
+		and math.min(lf.Position.Y - lf.Size.Y / 2, rf.Position.Y - rf.Size.Y / 2)
+		or  (root.Position.Y - 2.6)
+	local botW = Vector3.new(topW.X, bottomY, topW.Z)
+
+	local now = tick()
+	if t.last and (now - t.last.t) < CONFIG.Linger then
+		local a = math.clamp(CONFIG.Smooth, 0.01, 1)
+		topW = t.last.top:Lerp(topW, a)
+		botW = t.last.bot:Lerp(botW, a)
+	end
+	t.last = {top = topW, bot = botW, t = now}
+	return topW, botW
+end
+
+--===================================================================
 -- ОТРИСОВКА
 --===================================================================
 local function render()
@@ -201,6 +230,7 @@ local function render()
 	local myTeam   = getTeam(LocalPlayer)
 	local camPos   = Camera.CFrame.Position
 	local screenXY = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y)
+	local now      = tick()
 
 	for plr, t in pairs(esp) do
 		local char = getChar(plr)
@@ -229,20 +259,21 @@ local function render()
 			if ok and CONFIG.WallCheck and not isVisible(char, head) then ok = false end
 		end
 
-		if not ok then hide(t); continue end
+		-- если модель пропала — держим квадрат по последней позиции
+		local topW, botW, stale
+		if ok then
+			topW, botW = getSmoothedPositions(t, char, head, root)
+		elseif t.last and (now - t.last.t) < CONFIG.Linger then
+			topW, botW, stale = t.last.top, t.last.bot, true
+			dist = (topW - camPos).Magnitude
+		else
+			hide(t); continue
+		end
 
 		local col = sameTeam and CONFIG.TeamColor or CONFIG.EnemyColor
 
-		-- рамка: макушка -> ступни
-		local topPos = head.Position + Vector3.new(0, head.Size.Y / 2, 0)
-		local lf, rf = char:FindFirstChild("LeftFoot"), char:FindFirstChild("RightFoot")
-		local bottomY = (lf and rf)
-			and math.min(lf.Position.Y - lf.Size.Y / 2, rf.Position.Y - rf.Size.Y / 2)
-			or  (root.Position.Y - 2.6)
-
-		local top, onTop    = Camera:WorldToViewportPoint(topPos)
-		local bot, onBottom = Camera:WorldToViewportPoint(Vector3.new(topPos.X, bottomY, topPos.Z))
-
+		local top, onTop    = Camera:WorldToViewportPoint(topW)
+		local bot, onBottom = Camera:WorldToViewportPoint(botW)
 		if not (onTop and onBottom) or top.Z <= 0 or bot.Z <= 0 then
 			hide(t); continue
 		end
@@ -262,7 +293,7 @@ local function render()
 		t.name.Visible = CONFIG.Name
 		if CONFIG.Name then
 			local skin = plr:GetAttribute("PresentationCharacterName")
-			t.name.Text     = plr.Name .. (skin and (" | " .. skin) or "")
+			t.name.Text = plr.Name .. (skin and (" | " .. skin) or "") .. (stale and " ~" or "")
 			t.name.Position = Vector2.new(cx, top.Y - CONFIG.TextSize - 4)
 		end
 
@@ -274,12 +305,10 @@ local function render()
 
 		t.info.Visible = CONFIG.Weapon
 		if CONFIG.Weapon then
-			local w = getWeapon(plr)
-			t.info.Text     = w or ""
+			t.info.Text     = getWeapon(plr) or ""
 			t.info.Position = Vector2.new(cx, bot.Y + CONFIG.TextSize + 5)
 		end
 
-		-- HP
 		local hp, maxHP = getHP(plr)
 		t.hpBg.Visible  = CONFIG.Health and hp ~= nil
 		t.hpBar.Visible = CONFIG.Health and hp ~= nil
@@ -293,7 +322,6 @@ local function render()
 			t.hpBar.Size     = Vector2.new(3, height * f)
 		end
 
-		-- броня
 		local armor = getArmor(plr)
 		t.arBg.Visible  = CONFIG.Armor and armor ~= nil
 		t.arBar.Visible = CONFIG.Armor and armor ~= nil
@@ -313,7 +341,7 @@ local function render()
 			t.tracer.To    = Vector2.new(cx, bot.Y)
 		end
 
-		if CONFIG.Highlight then
+		if CONFIG.Highlight and char then
 			if not t.hl or t.hl.Parent ~= char then
 				if t.hl then t.hl:Destroy() end
 				local h = Instance.new("Highlight")
@@ -328,7 +356,7 @@ local function render()
 			t.hl.Enabled = false
 		end
 
-		if CONFIG.Skeleton then
+		if CONFIG.Skeleton and char then
 			local idx = 0
 			for _, pr in ipairs(SKEL) do
 				local a, b = char:FindFirstChild(pr[1]), char:FindFirstChild(pr[2])
@@ -356,75 +384,129 @@ local function render()
 end
 
 --===================================================================
--- AIMBOT
---===================================================================
-local aiming = false
-local fovCircle = Drawing and newDraw("Circle", {
-	Thickness = 1, Color = Color3.fromRGB(255, 255, 255), Filled = false, ZIndex = 6,
-}) or nil
-
-local function targetValid(plr, char, head)
-	if not char or not head or isDead(plr, char) then return false end
-	local myTeam = getTeam(LocalPlayer)
-	if CONFIG.TeamCheck and myTeam and getTeam(plr) == myTeam then return false end
-	if CONFIG.Aimbot.VisibleOnly and not isVisible(char, head) then return false end
-	return true
-end
-
-local function findTarget()
-	local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
-	local best, bestD = nil, CONFIG.Aimbot.FOV
-	for plr in pairs(esp) do
-		if plr ~= LocalPlayer then
-			local char = getChar(plr)
-			local head = char and char:FindFirstChild(CONFIG.Aimbot.Bone)
-			if targetValid(plr, char, head) then
-				local sp, on = Camera:WorldToViewportPoint(head.Position)
-				if on and sp.Z > 0 then
-					local d = (Vector2.new(sp.X, sp.Y) - center).Magnitude
-					if d < bestD then bestD, best = d, head end
-				end
-			end
-		end
-	end
-	return best
-end
-
-local function aimStep()
-	if not ready then return end
-	if fovCircle then
-		fovCircle.Visible = CONFIG.Aimbot.Enabled and CONFIG.Aimbot.DrawFOV
-		fovCircle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
-		fovCircle.Radius   = CONFIG.Aimbot.FOV
-	end
-	if not (CONFIG.Aimbot.Enabled and aiming) then return end
-	local head = findTarget()
-	if not head then return end
-	local camPos = Camera.CFrame.Position
-	local goal   = CFrame.lookAt(camPos, head.Position + Vector3.new(0, 0.1, 0))
-	Camera.CFrame = Camera.CFrame:Lerp(goal, math.clamp(CONFIG.Aimbot.Smooth, 0.01, 1))
-end
-
---===================================================================
 -- ДАМП (F2)
 --===================================================================
 local function dump()
-	print("===== ДАМП v3 =====")
-	print("Local Team=" .. tostring(getTeam(LocalPlayer)) ..
-	      " | HP=" .. tostring(getHP(LocalPlayer)) ..
-	      " | Dead=" .. tostring(LocalPlayer:GetAttribute("Dead")))
+	print("===== ДАМП v4 =====")
 	for _, plr in ipairs(Players:GetPlayers()) do
-		if plr ~= LocalPlayer and getChar(plr) then
+		if plr ~= LocalPlayer then
+			local char = getChar(plr)
 			print(plr.Name ..
 			      " | Team=" .. tostring(getTeam(plr)) ..
 			      " | HP=" .. tostring(getHP(plr)) ..
 			      " | Armor=" .. tostring(getArmor(plr)) ..
 			      " | Weapon=" .. tostring(getWeapon(plr)) ..
 			      " | Dead=" .. tostring(plr:GetAttribute("Dead")) ..
-			      " | Spect=" .. tostring(plr:GetAttribute("IsSpectating")))
+			      " | Char=" .. tostring(char ~= nil) ..
+			      " | PresVis=" .. tostring(char and char:GetAttribute("ClientCharacterPresentationVisible")))
 		end
 	end
 	print("====================")
+end
+
+--===================================================================
+-- ПОИСК ИСТОЧНИКА ПОЗИЦИЙ (F3)
+--===================================================================
+local ROOTS = {Workspace, ReplicatedStorage, CoreGui}
+
+local function scanRoots(fn)
+	for _, root in ipairs(ROOTS) do
+		if root then
+			for _, d in ipairs(root:GetDescendants()) do
+				fn(d, root)
+			end
+		end
+	end
+end
+
+local function hunt()
+	print("############ RADAR HUNT ############")
+
+	print("--- PlayerGui ---")
+	local pg = LocalPlayer:FindFirstChild("PlayerGui")
+	if pg then
+		for _, c in ipairs(pg:GetDescendants()) do
+			if c:IsA("GuiObject") and c.Visible then
+				print(string.format("   [%s] %s  absPos=%s absSize=%s",
+					c.ClassName, c:GetFullName(), tostring(c.AbsolutePosition), tostring(c.AbsoluteSize)))
+			end
+		end
+	else
+		print("   нет PlayerGui")
+	end
+
+	print("--- CoreGui (дети) ---")
+	for _, c in ipairs(CoreGui:GetChildren()) do
+		print("   " .. c.Name .. " [" .. c.ClassName .. "]")
+	end
+
+	print("--- Workspace (верхний уровень) ---")
+	for _, c in ipairs(Workspace:GetChildren()) do
+		print("   " .. c.Name .. " [" .. c.ClassName .. "]")
+	end
+
+	print("--- Workspace.Characters ---")
+	local folder = Workspace:FindFirstChild("Characters")
+	if folder then
+		for _, c in ipairs(folder:GetChildren()) do
+			local pos = c:IsA("Model") and c:GetPivot().Position or Vector3.zero
+			print(string.format("   %s [%s] pos=%.1f,%.1f,%.1f  PresVis=%s",
+				c.Name, c.ClassName, pos.X, pos.Y, pos.Z,
+				tostring(c:GetAttribute("ClientCharacterPresentationVisible"))))
+		end
+	else
+		print("   нет папки Characters")
+	end
+
+	print("--- Объекты с никами игроков (вне персонажа) ---")
+	for _, plr in ipairs(Players:GetPlayers()) do
+		local hits = {}
+		scanRoots(function(d)
+			if d.Name == plr.Name and not (Workspace:FindFirstChild("Characters")
+			     and d:IsDescendantOf(Workspace.Characters)) then
+				local extra = ""
+				if d:IsA("GuiObject") then
+					extra = "  absPos=" .. tostring(d.AbsolutePosition) ..
+					        " size=" .. tostring(d.AbsoluteSize) ..
+					        " vis=" .. tostring(d.Visible)
+				elseif d:IsA("BasePart") then
+					extra = "  pos=" .. tostring(d.Position)
+				end
+				table.insert(hits, "   [" .. d.ClassName .. "] " .. d:GetFullName() .. extra)
+			end
+		end)
+		if #hits > 0 then
+			print("### " .. plr.Name .. " — совпадений " .. #hits)
+			for i = 1, math.min(#hits, 12) do print(hits[i]) end
+		end
+	end
+
+	print("--- Объекты-метки (radar/blip/dot/marker/pin/minimap) ---")
+	for _, pat in ipairs({"radar","minimap","blip","marker","pin","dot"}) do
+		local hits = {}
+		scanRoots(function(d)
+			if d.Name:lower():find(pat) then
+				local extra = ""
+				if d:IsA("GuiObject") then
+					extra = "  absPos=" .. tostring(d.AbsolutePosition) .. " vis=" .. tostring(d.Visible)
+				elseif d:IsA("BasePart") then
+					extra = "  pos=" .. tostring(d.Position)
+				end
+				table.insert(hits, "   [" .. d.ClassName .. "] " .. d:GetFullName() .. extra)
+			end
+		end)
+		if #hits > 0 then
+			print("### паттерн '" .. pat .. "' — " .. #hits)
+			for i = 1, math.min(#hits, 10) do print(hits[i]) end
+		end
+	end
+
+	print("--- ReplicatedStorage (дети) ---")
+	for _, c in ipairs(ReplicatedStorage:GetChildren()) do
+		print("   " .. c.Name .. " [" .. c.ClassName .. "]")
+	end
+
+	print("####################################")
 end
 
 --===================================================================
@@ -439,7 +521,7 @@ gui.Name, gui.ResetOnSpawn = "VeniceESP", false
 gui.Parent = (gethui and gethui()) or LocalPlayer:WaitForChild("PlayerGui")
 
 local label = Instance.new("TextLabel")
-label.Size                   = UDim2.new(0, 270, 0, 22)
+label.Size                   = UDim2.new(0, 280, 0, 22)
 label.Position               = UDim2.new(0, 10, 0, 10)
 label.BackgroundColor3       = Color3.new(0, 0, 0)
 label.BackgroundTransparency = 0.5
@@ -447,30 +529,25 @@ label.TextColor3             = Color3.fromRGB(0, 255, 130)
 label.Font                   = Enum.Font.Code
 label.TextSize               = 14
 label.TextXAlignment         = Enum.TextXAlignment.Left
-label.Text                   = " BloxStrike ESP: ON | AIM: Q | [RShift] [F2]"
+label.Text                   = " BloxStrike ESP: ON  [RShift] [F2] [F3=radar hunt]"
 label.Parent                 = gui
 
 UserInputService.InputBegan:Connect(function(input, gpe)
 	if gpe then return end
 	if input.KeyCode == Enum.KeyCode.RightShift then
 		CONFIG.Enabled = not CONFIG.Enabled
-		label.Text = " BloxStrike ESP: " .. (CONFIG.Enabled and "ON" or "OFF") .. " | AIM: Q | [RShift] [F2]"
+		label.Text = " BloxStrike ESP: " .. (CONFIG.Enabled and "ON" or "OFF") .. "  [RShift] [F2] [F3=radar hunt]"
 	elseif input.KeyCode == Enum.KeyCode.F2 then
 		dump()
-	elseif input.KeyCode == CONFIG.Aimbot.Key then
-		aiming = true
+	elseif input.KeyCode == Enum.KeyCode.F3 then
+		hunt()
 	end
-end)
-
-UserInputService.InputEnded:Connect(function(input)
-	if input.KeyCode == CONFIG.Aimbot.Key then aiming = false end
 end)
 
 if Drawing then
 	ready = true
 	RunService.RenderStepped:Connect(render)
-	RunService:BindToRenderStep("VeniceAim", Enum.RenderPriority.Camera.Value + 1, aimStep)
-	print("[Venice] ESP+AIM v5 загружен. RShift — ESP, Q — aimbot, F2 — дамп.")
+	print("[Venice] ESP v6 загружен. RShift — ESP, F2 — дамп, F3 — radar hunt.")
 else
 	warn("[Venice] Нет Drawing API — нужен executor.")
 end
