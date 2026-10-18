@@ -1,33 +1,37 @@
--- ESP для Blox Strike (Roblox)
+-- Исправленный ESP для Blox Strike
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 local Workspace = game:GetService("Workspace")
 local RunService = game:GetService("RunService")
 
--- Настройки цвета (можно менять RGB значения)
-local COLOR = Color3.fromRGB(255, 0, 0) -- Красный
-local OUTLINE_COLOR = Color3.fromRGB(0, 0, 0) -- Черная обводка для контраста
+-- Цвета (RGB)
+local COLOR = Color3.fromRGB(255, 0, 0) -- Красный fill
+local OUTLINE_COLOR = Color3.fromRGB(0, 0, 0) -- Черная обводка
 
--- Папка для ESP элементов
+-- Папка для ESP, чтобы не засорять экран
 local espFolder = Instance.new("Folder")
 espFolder.Name = "BloXStrikeESP"
 espFolder.Parent = LocalPlayer.PlayerGui or LocalPlayer:FindFirstChild("PlayerGui") or workspace.CurrentCamera
 
--- Функция создания ESP для модели
+-- Функция создания ESP
 local function createESP(model)
     if not model or not model:IsA("Model") then return end
     
     local highlight = Instance.new("Highlight")
     highlight.Name = "ESP_" .. model.Name
     highlight.Adornee = model
-    highlight.FillTransparency = 0.95 -- Почти невидимый внутри
-    highlight.LineTransparency = 0
+    
+    -- Настройки (исправлено)
     highlight.FillColor = COLOR
+    highlight.FillTransparency = 0.9 -- Сильная прозрачность внутри
     highlight.LineColor = OUTLINE_COLOR
-    highlight.OutlineTransparency = 0
+    highlight.LineThickness = 1 -- Толщина белой/цветной обводки
+    highlight.OutlineColor = OUTLINE_COLOR -- Цвет внешней рамки
+    highlight.OutlineTransparency = 0 -- Внешняя рамка видимая
+    
     highlight.Parent = espFolder
     
-    -- Удаляем, если модель уничтожена
+    -- Удаляем ESP, если модель удалена из игры
     model.AncestryChanged:Connect(function()
         if not model.Parent then
             highlight:Destroy()
@@ -35,14 +39,14 @@ local function createESP(model)
     end)
 end
 
--- Ищем всех персонажей в игре
--- В Blox Strike враги часто лежат в папке "Enemies", "Targets" или просто в Workspace
+-- Сканирование врагов/игроков
 local function scanForTargets()
+    -- Проходим по всем детям Workspace
     for _, child in pairs(Workspace:GetChildren()) do
         if child:IsA("Model") and child:FindFirstChild("HumanoidRootPart") then
-            -- Проверяем, чтобы не подсветить самого себя
+            -- Не подсвечиваем себя
             if child ~= LocalPlayer.Character then
-                -- Создаем ESP только если его еще нет
+                -- Если еще нет ESP, создаем его
                 if not child:FindFirstChildWhichIsA("Highlight") then
                     createESP(child)
                 end
@@ -51,10 +55,10 @@ local function scanForTargets()
     end
 end
 
--- Запускаем сканирование каждые полсекунды
+-- Запускаем цикл
 while true do
     scanForTargets()
-    wait(0.5)
+    wait(0.5) -- Проверка каждые полсекунды
 end
 
-print("BloX Strike ESP Loaded!")
+print("ESP Loaded!")
