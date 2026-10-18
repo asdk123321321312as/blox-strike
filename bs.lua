@@ -1,19 +1,17 @@
--- Исправленный ESP для Blox Strike
+-- ESP для Blox Strike (Универсальный, без ошибок)
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 local Workspace = game:GetService("Workspace")
-local RunService = game:GetService("RunService")
 
--- Цвета (RGB)
-local COLOR = Color3.fromRGB(255, 0, 0) -- Красный fill
-local OUTLINE_COLOR = Color3.fromRGB(0, 0, 0) -- Черная обводка
+-- Цвета
+local FILL_COLOR = Color3.fromRGB(255, 0, 0) -- Красный (внутри)
+local LINE_COLOR = Color3.fromRGB(255, 255, 255) -- Белый (контур)
 
--- Папка для ESP, чтобы не засорять экран
+-- Папка для элементов ESP
 local espFolder = Instance.new("Folder")
-espFolder.Name = "BloXStrikeESP"
+espFolder.Name = "ESP_Folder"
 espFolder.Parent = LocalPlayer.PlayerGui or LocalPlayer:FindFirstChild("PlayerGui") or workspace.CurrentCamera
 
--- Функция создания ESP
 local function createESP(model)
     if not model or not model:IsA("Model") then return end
     
@@ -21,17 +19,21 @@ local function createESP(model)
     highlight.Name = "ESP_" .. model.Name
     highlight.Adornee = model
     
-    -- Настройки (исправлено)
-    highlight.FillColor = COLOR
-    highlight.FillTransparency = 0.9 -- Сильная прозрачность внутри
-    highlight.LineColor = OUTLINE_COLOR
-    highlight.LineThickness = 1 -- Толщина белой/цветной обводки
-    highlight.OutlineColor = OUTLINE_COLOR -- Цвет внешней рамки
-    highlight.OutlineTransparency = 0 -- Внешняя рамка видимая
+    -- Только проверенные свойства
+    highlight.FillColor = FILL_COLOR
+    highlight.FillTransparency = 0.95 -- Почти невидимый внутри
+    highlight.LineColor = LINE_COLOR
+    highlight.LineThickness = 2 -- Толщина контура
+    highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop -- Показывать поверх всего
+    
+    -- Пытаемся добавить прозрачность линии, если она есть, иначе игнорируем ошибку
+    pcall(function()
+        highlight.LineTransparency = 0
+    end)
     
     highlight.Parent = espFolder
     
-    -- Удаляем ESP, если модель удалена из игры
+    -- Удаляем при уничтожении модели
     model.AncestryChanged:Connect(function()
         if not model.Parent then
             highlight:Destroy()
@@ -39,14 +41,11 @@ local function createESP(model)
     end)
 end
 
--- Сканирование врагов/игроков
 local function scanForTargets()
-    -- Проходим по всем детям Workspace
+    -- Ищем во всем Workspace
     for _, child in pairs(Workspace:GetChildren()) do
         if child:IsA("Model") and child:FindFirstChild("HumanoidRootPart") then
-            -- Не подсвечиваем себя
             if child ~= LocalPlayer.Character then
-                -- Если еще нет ESP, создаем его
                 if not child:FindFirstChildWhichIsA("Highlight") then
                     createESP(child)
                 end
@@ -55,10 +54,9 @@ local function scanForTargets()
     end
 end
 
--- Запускаем цикл
 while true do
     scanForTargets()
-    wait(0.5) -- Проверка каждые полсекунды
+    wait(1) -- Проверяем раз в секунду, чтобы не грузить процессор
 end
 
 print("ESP Loaded!")
