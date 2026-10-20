@@ -1,7 +1,6 @@
 --=====================================================================
---  BLOX STRIKE  •  VENICE FULL SCRIPT
---  ESP сквозь стены | Чёрное кастомное меню | FOV | FPS Boost
---  Кастом неба | Летающие частицы | AutoBunnyHop
+--  BLOX STRIKE  •  VENICE FULL SCRIPT v2
+--  ESP | Чёрное меню | FOV | FPS Boost | Небо | Частицы | Bhop | SkinChanger
 --=====================================================================
 
 local Players    = game:GetService("Players")
@@ -10,6 +9,7 @@ local UIS        = game:GetService("UserInputService")
 local Lighting   = game:GetService("Lighting")
 local Tween      = game:GetService("TweenService")
 local WS         = game:GetService("Workspace")
+local RS         = game:GetService("ReplicatedStorage")
 local Http       = game:GetService("HttpService")
 
 local LP = Players.LocalPlayer
@@ -27,21 +27,19 @@ local Flags = {
     Menu = { Key = "RightShift", Accent = Color3.fromRGB(0,170,255), Transparency = 0.06 },
 
     ESP = {
-        Enabled = false, Box = true, BoxFill = false, Name = true, Health = true,
+        Mode = "Авто", Enabled = true, Box = true, BoxFill = false, Name = true, Health = true,
         Distance = true, Weapon = true, Tracer = false, Chams = true,
-        TeamColor = true, TeamCheck = false, MaxDistance = 1500,
-        TextSize = 13, Color = Color3.fromRGB(0,170,255),
+        TeamColor = true, TeamCheck = false, MaxDistance = 2000,
+        TextSize = 13, Color = Color3.fromRGB(0,170,255), ShowSelf = false,
     },
 
     Visual = { FOVEnabled = false, FOV = 100, FPSBoost = false },
 
     Sky = {
         ClockTime = 14, Brightness = 2, FogEnd = 3000, FogStart = 0,
-        FogColor = Color3.fromRGB(170,200,235),
-        Ambient = Color3.fromRGB(90,95,105),
-        Outdoor  = Color3.fromRGB(140,150,165),
-        Stars = 3000, Atmosphere = true, Density = 0.3, Haze = 0,
-        Celestial = true,
+        FogColor = Color3.fromRGB(170,200,235), Ambient = Color3.fromRGB(90,95,105),
+        Outdoor = Color3.fromRGB(140,150,165), Stars = 3000,
+        Atmosphere = true, Density = 0.3, Haze = 0, Celestial = true,
     },
 
     Particles = {
@@ -51,99 +49,99 @@ local Flags = {
         Texture = "rbxasset://textures/particles/sparkles_main.dds",
     },
 
-    Bhop = { Enabled = false, Always = false, RequireMove = true, JumpPower = 55 },
+    Bhop = { Enabled = false, Always = true, RequireMove = true, AutoStrafe = false,
+             StrafeAngle = 35, JumpPower = 55, UseJumpPower = true },
+
+    Skin = {
+        Enabled = false, Material = "Изначально", Color = Color3.fromRGB(255,255,255),
+        Reflectance = 0, Transparency = 0, UseTransparency = false,
+        TextureId = "", MeshId = "", Rainbow = false, ApplyAll = true,
+    },
 }
 
 --=====================================================================
---  THEME + UI LIBRARY
+--  THEME + ХЕЛПЕРЫ
 --=====================================================================
 local Theme = {
-    Bg     = Color3.fromRGB(9,9,11),
-    Panel  = Color3.fromRGB(15,15,19),
-    Card   = Color3.fromRGB(21,21,26),
-    Hover  = Color3.fromRGB(30,30,37),
-    Stroke = Color3.fromRGB(40,40,50),
-    Text   = Color3.fromRGB(232,232,240),
-    Sub    = Color3.fromRGB(135,135,152),
-    Accent = Flags.Menu.Accent,
+    Bg = Color3.fromRGB(9,9,11), Panel = Color3.fromRGB(15,15,19),
+    Card = Color3.fromRGB(21,21,26), Hover = Color3.fromRGB(30,30,37),
+    Stroke = Color3.fromRGB(40,40,50), Text = Color3.fromRGB(232,232,240),
+    Sub = Color3.fromRGB(135,135,152), Accent = Flags.Menu.Accent,
 }
 
 local function new(class, props)
     local o = Instance.new(class)
-    for k, v in next, props do
-        if k ~= "Parent" then o[k] = v end
-    end
+    for k, v in next, props do if k ~= "Parent" then o[k] = v end end
     if props.Parent then o.Parent = props.Parent end
     return o
 end
-local function corner(obj, r)
-    new("UICorner", { CornerRadius = UDim.new(0, r or 6), Parent = obj })
-end
-local function stroke(obj, color, thick, trans)
-    new("UIStroke", { Color = color or Theme.Stroke, Thickness = thick or 1,
-        Transparency = trans or 0, ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Parent = obj })
+local function corner(o, r) new("UICorner", { CornerRadius = UDim.new(0, r or 6), Parent = o }) end
+local function stroke(o, c, t, tr)
+    new("UIStroke", { Color = c or Theme.Stroke, Thickness = t or 1, Transparency = tr or 0,
+        ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Parent = o })
 end
 local function makeDraggable(frame, handle)
     handle = handle or frame
-    local dragging, dragStart, startPos
+    local drag, ds, sp
     handle.InputBegan:Connect(function(i)
         if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
-            dragging, dragStart, startPos = true, i.Position, frame.Position
+            drag, ds, sp = true, i.Position, frame.Position
             i.Changed:Connect(function()
-                if i.UserInputState == Enum.UserInputState.End then dragging = false end
+                if i.UserInputState == Enum.UserInputState.End then drag = false end
             end)
         end
     end)
     UIS.InputChanged:Connect(function(i)
-        if dragging and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
-            local d = i.Position - dragStart
-            frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y)
+        if drag and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
+            local d = i.Position - ds
+            frame.Position = UDim2.new(sp.X.Scale, sp.X.Offset + d.X, sp.Y.Scale, sp.Y.Offset + d.Y)
         end
     end)
 end
 
 --=====================================================================
---  SCREEN GUI + ОКНО
+--  GUI КАРКАС  (исправленная структура — шапка всегда снаружи)
 --=====================================================================
 local ScreenGui = new("ScreenGui", {
     Name = "VeniceBloxStrike", ResetOnSpawn = false, IgnoreGuiInset = true,
     ZIndexBehavior = Enum.ZIndexBehavior.Sibling, DisplayOrder = 999, Parent = GUI_PARENT,
 })
 
+local WIN_W, WIN_H = 660, 448
 local Main = new("Frame", {
-    Parent = ScreenGui, Size = UDim2.new(0,660,0,440), Position = UDim2.new(0.5,-330,0.5,-220),
+    Parent = ScreenGui, Size = UDim2.new(0,WIN_W,0,WIN_H), Position = UDim2.new(0.5,-WIN_W/2,0.5,-WIN_H/2),
     BackgroundColor3 = Theme.Bg, BorderSizePixel = 0, ClipsDescendants = true,
 })
 corner(Main, 12); stroke(Main, Theme.Stroke, 1, 0)
 new("UIGradient", { Parent = Main, Rotation = 90,
     Color = ColorSequence.new(Color3.fromRGB(14,14,18), Color3.fromRGB(8,8,10)) })
 
-local Sidebar = new("Frame", { Parent = Main, Size = UDim2.new(0,152,1,0), BackgroundColor3 = Theme.Bg, BorderSizePixel = 0 })
-new("UIListLayout", { Parent = Sidebar, Padding = UDim.new(0,4), SortOrder = Enum.SortOrder.LayoutOrder })
-new("UIPadding", { Parent = Sidebar, PaddingTop = UDim.new(0,12), PaddingLeft = UDim.new(0,10), PaddingRight = UDim.new(0,10) })
-
-local Right = new("Frame", { Parent = Main, Position = UDim2.new(0,152,0,0), Size = UDim2.new(1,-152,1,0), BackgroundTransparency = 1 })
-new("Frame", { Parent = Main, Position = UDim2.new(0,152,0,0), Size = UDim2.new(0,1,1,0),
-    BackgroundColor3 = Theme.Stroke, BorderSizePixel = 0, ZIndex = 5 })
-
-local Top = new("Frame", { Parent = Right, Size = UDim2.new(1,0,0,38), BackgroundColor3 = Theme.Panel, BorderSizePixel = 0 })
-new("TextLabel", { Parent = Top, BackgroundTransparency = 1, Position = UDim2.new(0,16,0,0), Size = UDim2.new(1,-120,1,0),
+local Top = new("Frame", { Parent = Main, Size = UDim2.new(1,0,0,38), BackgroundColor3 = Theme.Panel, BorderSizePixel = 0 })
+new("TextLabel", { Parent = Top, BackgroundTransparency = 1, Position = UDim2.new(0,16,0,0), Size = UDim2.new(1,-140,1,0),
     Text = "BLOX STRIKE", Font = Enum.Font.GothamBold, TextSize = 14, TextColor3 = Theme.Text,
     TextXAlignment = Enum.TextXAlignment.Left })
-new("TextLabel", { Parent = Top, BackgroundTransparency = 1, Position = UDim2.new(0,110,0,0), Size = UDim2.new(1,-160,1,0),
+new("TextLabel", { Parent = Top, BackgroundTransparency = 1, Position = UDim2.new(0,110,0,0), Size = UDim2.new(1,-180,1,0),
     Text = "• VENICE", Font = Enum.Font.GothamBold, TextSize = 14, TextColor3 = Theme.Accent,
     TextXAlignment = Enum.TextXAlignment.Left })
 new("Frame", { Parent = Top, Position = UDim2.new(0,0,1,-1), Size = UDim2.new(1,0,0,1),
     BackgroundColor3 = Theme.Stroke, BorderSizePixel = 0 })
 
-local Content = new("Frame", { Parent = Right, Position = UDim2.new(0,0,0,38), Size = UDim2.new(1,0,1,-38),
+local Sidebar = new("Frame", { Parent = Main, Position = UDim2.new(0,0,0,38), Size = UDim2.new(0,152,1,-38),
+    BackgroundColor3 = Theme.Bg, BorderSizePixel = 0 })
+new("UIListLayout", { Parent = Sidebar, Padding = UDim.new(0,4), SortOrder = Enum.SortOrder.LayoutOrder })
+new("UIPadding", { Parent = Sidebar, PaddingTop = UDim.new(0,12), PaddingLeft = UDim.new(0,10), PaddingRight = UDim.new(0,10) })
+
+local Sep = new("Frame", { Parent = Main, Position = UDim2.new(0,152,0,38), Size = UDim2.new(0,1,1,-38),
+    BackgroundColor3 = Theme.Stroke, BorderSizePixel = 0, ZIndex = 5 })
+
+local Content = new("Frame", { Parent = Main, Position = UDim2.new(0,152,0,38), Size = UDim2.new(1,-152,1,-38),
     BackgroundColor3 = Theme.Panel, BorderSizePixel = 0 })
 
-local minBtn = new("TextButton", { Parent = Top, Position = UDim2.new(1,-72,0,8), Size = UDim2.new(0,26,0,22),
+local minBtn = new("TextButton", { Parent = Top, Position = UDim2.new(1,-74,0,8), Size = UDim2.new(0,26,0,22),
     BackgroundColor3 = Theme.Card, Text = "—", Font = Enum.Font.GothamBold, TextSize = 12,
     TextColor3 = Theme.Sub, AutoButtonColor = false })
 corner(minBtn,6)
-local closeBtn = new("TextButton", { Parent = Top, Position = UDim2.new(1,-40,0,8), Size = UDim2.new(0,26,0,22),
+local closeBtn = new("TextButton", { Parent = Top, Position = UDim2.new(1,-42,0,8), Size = UDim2.new(0,26,0,22),
     BackgroundColor3 = Theme.Card, Text = "✕", Font = Enum.Font.GothamBold, TextSize = 12,
     TextColor3 = Theme.Sub, AutoButtonColor = false })
 corner(closeBtn,6)
@@ -170,7 +168,6 @@ local function addToggle(parent, text, default, callback)
     new("TextLabel", { Parent = row, BackgroundTransparency = 1, Position = UDim2.new(0,12,0,0),
         Size = UDim2.new(1,-70,1,0), Text = text, Font = Enum.Font.GothamMedium, TextSize = 13,
         TextColor3 = Theme.Text, TextXAlignment = Enum.TextXAlignment.Left })
-
     local state = default
     local track = new("Frame", { Parent = row, Size = UDim2.new(0,38,0,18), Position = UDim2.new(1,-50,0.5,-9),
         BackgroundColor3 = state and Theme.Accent or Theme.Hover, BorderSizePixel = 0 })
@@ -179,8 +176,7 @@ local function addToggle(parent, text, default, callback)
         Position = state and UDim2.new(1,-16,0.5,-7) or UDim2.new(0,2,0.5,-7),
         BackgroundColor3 = Color3.new(1,1,1), BorderSizePixel = 0 })
     corner(knob,7)
-    new("TextButton", { Parent = row, BackgroundTransparency = 1, Size = UDim2.new(1,0,1,0), Text = "" })
-
+    local btn = new("TextButton", { Parent = row, BackgroundTransparency = 1, Size = UDim2.new(1,0,1,0), Text = "" })
     local function set(v, fire)
         state = v
         Tween:Create(track, TweenInfo.new(0.15), { BackgroundColor3 = v and Theme.Accent or Theme.Hover }):Play()
@@ -188,7 +184,7 @@ local function addToggle(parent, text, default, callback)
             { Position = v and UDim2.new(1,-16,0.5,-7) or UDim2.new(0,2,0.5,-7) }):Play()
         if fire ~= false and callback then callback(v) end
     end
-    row:FindFirstChildOfClass("TextButton").MouseButton1Click:Connect(function() set(not state) end)
+    btn.MouseButton1Click:Connect(function() set(not state) end)
     if callback then callback(state) end
     return { Set = set, Get = function() return state end }
 end
@@ -198,11 +194,9 @@ local function addSlider(parent, text, min, max, default, decimals, callback)
     local row = new("Frame", { Parent = parent, Size = UDim2.new(1,-8,0,48),
         BackgroundColor3 = Theme.Card, BorderSizePixel = 0 })
     corner(row,7); stroke(row, Theme.Stroke, 1, 0.5)
-
     local label = new("TextLabel", { Parent = row, BackgroundTransparency = 1, Position = UDim2.new(0,12,0,6),
         Size = UDim2.new(1,-24,0,18), Text = text, Font = Enum.Font.GothamMedium, TextSize = 12,
         TextColor3 = Theme.Sub, TextXAlignment = Enum.TextXAlignment.Left })
-
     local bar = new("Frame", { Parent = row, Position = UDim2.new(0,12,0,34), Size = UDim2.new(1,-24,0,5),
         BackgroundColor3 = Theme.Bg, BorderSizePixel = 0 })
     corner(bar,3)
@@ -211,14 +205,11 @@ local function addSlider(parent, text, min, max, default, decimals, callback)
     local knob = new("Frame", { Parent = bar, Size = UDim2.new(0,11,0,11), AnchorPoint = Vector2.new(0.5,0.5),
         Position = UDim2.new(0,0,0.5,0), BackgroundColor3 = Color3.new(1,1,1), BorderSizePixel = 0 })
     corner(knob,6)
-
     local value, dragging = default, false
     local function render()
         local a = (max > min) and ((value - min)/(max - min)) or 0
-        fill.Size = UDim2.new(a,0,1,0)
-        knob.Position = UDim2.new(a,0,0.5,0)
-        local t = (decimals == 0) and tostring(math.floor(value)) or string.format("%."..decimals.."f", value)
-        label.Text = text .. "   " .. t
+        fill.Size = UDim2.new(a,0,1,0); knob.Position = UDim2.new(a,0,0.5,0)
+        label.Text = text .. "   " .. ((decimals == 0) and tostring(math.floor(value)) or string.format("%."..decimals.."f", value))
     end
     local function set(v, fire)
         v = math.clamp(v, min, max)
@@ -226,7 +217,6 @@ local function addSlider(parent, text, min, max, default, decimals, callback)
         value = v; render()
         if fire ~= false and callback then callback(value) end
     end
-
     local hit = new("TextButton", { Parent = row, BackgroundTransparency = 1, Text = "",
         Position = UDim2.new(0,12,0,26), Size = UDim2.new(1,-24,0,20) })
     local function fromMouse()
@@ -241,7 +231,6 @@ local function addSlider(parent, text, min, max, default, decimals, callback)
     UIS.InputEnded:Connect(function(i)
         if i.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end
     end)
-
     render()
     return { Set = set, Get = function() return value end }
 end
@@ -250,20 +239,17 @@ local function addDropdown(parent, text, options, default, callback)
     local cont = new("Frame", { Parent = parent, Size = UDim2.new(1,-8,0,0),
         AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1 })
     new("UIListLayout", { Parent = cont, Padding = UDim.new(0,4), SortOrder = Enum.SortOrder.LayoutOrder })
-
     local btn = new("TextButton", { Parent = cont, Size = UDim2.new(1,0,0,32), BackgroundColor3 = Theme.Card,
         BorderSizePixel = 0, Text = text .. "   ▾   " .. tostring(default), Font = Enum.Font.GothamMedium,
         TextSize = 12, TextColor3 = Theme.Text, TextXAlignment = Enum.TextXAlignment.Left, AutoButtonColor = false })
     corner(btn,7); stroke(btn, Theme.Stroke, 1, 0.5)
     new("UIPadding", { Parent = btn, PaddingLeft = UDim.new(0,12) })
-
     local list = new("Frame", { Parent = cont, Size = UDim2.new(1,0,0,0), AutomaticSize = Enum.AutomaticSize.Y,
         BackgroundColor3 = Theme.Bg, BorderSizePixel = 0, Visible = false })
     corner(list,7); stroke(list, Theme.Stroke, 1, 0.3)
     new("UIListLayout", { Parent = list, Padding = UDim.new(0,3), SortOrder = Enum.SortOrder.LayoutOrder })
     new("UIPadding", { Parent = list, PaddingTop = UDim.new(0,5), PaddingBottom = UDim.new(0,5),
         PaddingLeft = UDim.new(0,5), PaddingRight = UDim.new(0,5) })
-
     for _, opt in ipairs(options) do
         local it = new("TextButton", { Parent = list, Size = UDim2.new(1,0,0,26), BackgroundColor3 = Theme.Card,
             BorderSizePixel = 0, Text = opt, Font = Enum.Font.GothamMedium, TextSize = 12,
@@ -308,7 +294,7 @@ local function addTextBox(parent, text, default, callback)
     return box
 end
 
---  COLOR PICKER  -----------------------------------------------------
+--  COLOR PICKER  -------------------------------------------------------
 local pickerState = { R = 255, G = 255, B = 255 }
 local pickerCallback, pickerUpdating = nil, false
 
@@ -389,7 +375,6 @@ local function createTab(name)
     local ind = new("Frame", { Parent = btn, Size = UDim2.new(0,3,0,16), Position = UDim2.new(0,0,0.5,-8),
         BackgroundColor3 = Theme.Accent, BorderSizePixel = 0, Visible = false })
     corner(ind,2)
-
     local page = new("ScrollingFrame", { Parent = Content, Size = UDim2.new(1,0,1,0),
         BackgroundTransparency = 1, BorderSizePixel = 0, Visible = false, ScrollBarThickness = 3,
         ScrollBarImageColor3 = Theme.Stroke, CanvasSize = UDim2.new(0,0,0,0),
@@ -397,7 +382,6 @@ local function createTab(name)
     new("UIListLayout", { Parent = page, Padding = UDim.new(0,6), SortOrder = Enum.SortOrder.LayoutOrder })
     new("UIPadding", { Parent = page, PaddingTop = UDim.new(0,12), PaddingBottom = UDim.new(0,12),
         PaddingLeft = UDim.new(0,12), PaddingRight = UDim.new(0,12) })
-
     Pages[name], TabBtns[name] = page, btn
     btn.MouseEnter:Connect(function()
         if not page.Visible then btn.BackgroundColor3 = Theme.Card; btn.TextColor3 = Theme.Text end
@@ -417,50 +401,104 @@ local function createTab(name)
     return page
 end
 
-local tabESP   = createTab("ESP")
-local tabList  = createTab("Игроки")
-local tabVis   = createTab("Визуал")
-local tabSky   = createTab("Небо")
-local tabPart  = createTab("Частицы")
-local tabBhop  = createTab("BunnyHop")
-local tabCfg   = createTab("Настройки")
+local tabESP  = createTab("ESP")
+local tabList = createTab("Игроки")
+local tabVis  = createTab("Визуал")
+local tabSky  = createTab("Небо")
+local tabPart = createTab("Частицы")
+local tabSkin = createTab("Скины")
+local tabBhop = createTab("BunnyHop")
+local tabCfg  = createTab("Настройки")
 
 --=====================================================================
---  ESP  (сквозь стены)
+--  ESP — ДВА ДВИЖКА (Drawing + Billboard)
 --=====================================================================
-local hasDrawing = pcall(function() local d = Drawing.new("Square"); d:Remove() end)
+local drawingOK = (function()
+    if not Drawing then return false end
+    return pcall(function()
+        local d = Drawing.new("Square")
+        d.Visible = false
+        if d.Remove then d:Remove() elseif d.Destroy then d:Destroy() end
+    end)
+end)()
+
+local function removeD(d)
+    if not d then return end
+    if d.Remove then pcall(function() d:Remove() end)
+    elseif d.Destroy then pcall(function() d:Destroy() end) end
+end
+
 local espCache = {}
 
 local function newD(class, props)
-    if not hasDrawing then return nil end
     local ok, d = pcall(Drawing.new, class)
     if not ok then return nil end
     for k, v in pairs(props) do d[k] = v end
     return d
 end
 
-local function createESP()
+local function createDrawingESP()
     return {
-        box      = newD("Square", { Thickness = 1, Filled = false, Transparency = 0.15, Color = Flags.ESP.Color, Visible = false }),
-        boxFill  = newD("Square", { Thickness = 0, Filled = true,  Transparency = 0.85, Color = Flags.ESP.Color, Visible = false }),
-        name     = newD("Text", { Size = 13, Center = true, Outline = true, OutlineColor = Color3.new(0,0,0), Color = Color3.new(1,1,1), Visible = false, Font = 2 }),
-        dist     = newD("Text", { Size = 12, Center = true, Outline = true, OutlineColor = Color3.new(0,0,0), Color = Color3.fromRGB(200,200,210), Visible = false, Font = 2 }),
-        weapon   = newD("Text", { Size = 12, Center = true, Outline = true, OutlineColor = Color3.new(0,0,0), Color = Color3.fromRGB(255,215,120), Visible = false, Font = 2 }),
-        hpBg     = newD("Square", { Filled = true, Transparency = 0.5, Color = Color3.fromRGB(15,15,15), Visible = false }),
-        hp       = newD("Square", { Filled = true, Transparency = 0, Color = Color3.fromRGB(0,255,120), Visible = false }),
-        tracer   = newD("Line", { Thickness = 1, Transparency = 0.4, Color = Flags.ESP.Color, Visible = false }),
-        headDot  = newD("Circle", { Radius = 3, Filled = true, Transparency = 0, Color = Flags.ESP.Color, Visible = false }),
+        box     = newD("Square", { Thickness = 1, Filled = false, Transparency = 0.15, Color = Flags.ESP.Color, Visible = false }),
+        boxFill = newD("Square", { Thickness = 0, Filled = true, Transparency = 0.85, Color = Flags.ESP.Color, Visible = false }),
+        name    = newD("Text", { Size = Flags.ESP.TextSize, Center = true, Outline = true, OutlineColor = Color3.new(0,0,0), Color = Color3.new(1,1,1), Visible = false, Font = 2 }),
+        dist    = newD("Text", { Size = Flags.ESP.TextSize - 1, Center = true, Outline = true, OutlineColor = Color3.new(0,0,0), Color = Color3.fromRGB(200,200,210), Visible = false, Font = 2 }),
+        weapon  = newD("Text", { Size = Flags.ESP.TextSize - 1, Center = true, Outline = true, OutlineColor = Color3.new(0,0,0), Color = Color3.fromRGB(255,215,120), Visible = false, Font = 2 }),
+        hpBg    = newD("Square", { Filled = true, Transparency = 0.5, Color = Color3.fromRGB(15,15,15), Visible = false }),
+        hp      = newD("Square", { Filled = true, Color = Color3.fromRGB(0,255,120), Visible = false }),
+        tracer  = newD("Line", { Thickness = 1, Transparency = 0.4, Color = Flags.ESP.Color, Visible = false }),
     }
 end
 
-local function hideESP(c)
+local function hideDrawingESP(c)
     for _, d in pairs(c) do if d then d.Visible = false end end
 end
-local function destroyESP(c)
-    for _, d in pairs(c) do if d then pcall(function() d:Remove() end) end end
+local function destroyDrawingESP(c)
+    for _, d in pairs(c) do removeD(d) end
 end
 
-local function chamsFor(player, char, color, on)
+-- Billboard-движок (работает всегда, всегда сквозь стены через AlwaysOnTop)
+local function createBillboardESP(char)
+    local bb = Instance.new("BillboardGui")
+    bb.Name = "VeniceESP"
+    bb.Size = UDim2.new(0, 3.4, 0, 5.8)
+    bb.StudsOffsetWorldSpace = Vector3.new(0, 0.2, 0)
+    bb.AlwaysOnTop = true
+    bb.LightInfluence = 0
+    bb.ClipsDescendants = false
+    bb.MaxDistance = Flags.ESP.MaxDistance
+    bb.Adornee = char:FindFirstChild("HumanoidRootPart")
+    bb.Parent = char
+
+    local fill = new("Frame", { Parent = bb, Size = UDim2.new(1,0,1,0), BackgroundColor3 = Flags.ESP.Color,
+        BackgroundTransparency = 0.85, BorderSizePixel = 0, Visible = false })
+    local box = new("Frame", { Parent = bb, Size = UDim2.new(1,0,1,0), BackgroundColor3 = Color3.new(1,1,1),
+        BackgroundTransparency = 1, BorderSizePixel = 0 })
+    local boxStroke = new("UIStroke", { Parent = box, Color = Flags.ESP.Color, Thickness = 1.6 })
+
+    local hpBg = new("Frame", { Parent = bb, Position = UDim2.new(-0.09,0,0,0), Size = UDim2.new(0.06,0,1,0),
+        BackgroundColor3 = Color3.fromRGB(15,15,15), BackgroundTransparency = 0.45, BorderSizePixel = 0 })
+    local hp = new("Frame", { Parent = bb, Position = UDim2.new(-0.09,0,0,0), Size = UDim2.new(0.06,0,1,0),
+        BackgroundColor3 = Color3.fromRGB(0,255,120), BorderSizePixel = 0, AnchorPoint = Vector2.new(0,1) })
+
+    local nameL = new("TextLabel", { Parent = bb, Position = UDim2.new(0.5,0,0,0), AnchorPoint = Vector2.new(0.5,1),
+        Size = UDim2.new(1,0,0.22,0), BackgroundTransparency = 1, Text = "", TextScaled = true,
+        Font = Enum.Font.GothamBold, TextColor3 = Color3.new(1,1,1),
+        TextStrokeTransparency = 0, TextStrokeColor3 = Color3.new(0,0,0) })
+    local distL = new("TextLabel", { Parent = bb, Position = UDim2.new(0.5,0,1,0), AnchorPoint = Vector2.new(0.5,0),
+        Size = UDim2.new(1,0,0.18,0), BackgroundTransparency = 1, Text = "", TextScaled = true,
+        Font = Enum.Font.Gotham, TextColor3 = Color3.fromRGB(210,210,220),
+        TextStrokeTransparency = 0, TextStrokeColor3 = Color3.new(0,0,0) })
+    local wpnL = new("TextLabel", { Parent = bb, Position = UDim2.new(0.5,0,1,0), AnchorPoint = Vector2.new(0.5,0),
+        Size = UDim2.new(1,0,0.18,0), BackgroundTransparency = 1, Text = "", TextScaled = true,
+        Font = Enum.Font.Gotham, TextColor3 = Color3.fromRGB(255,215,120),
+        TextStrokeTransparency = 0, TextStrokeColor3 = Color3.new(0,0,0) })
+
+    return bb, { fill = fill, box = box, boxStroke = boxStroke, hp = hp, hpBg = hpBg,
+                 name = nameL, dist = distL, weapon = wpnL }
+end
+
+local function chamsFor(char, color, on)
     local h = char:FindFirstChild("VeniceChams")
     if on then
         if not h then
@@ -473,9 +511,7 @@ local function chamsFor(player, char, color, on)
             h.Parent = char
         end
         h.FillColor, h.OutlineColor = color, color
-    elseif h then
-        h:Destroy()
-    end
+    elseif h then h:Destroy() end
 end
 
 local function getWeapon(player, char)
@@ -484,14 +520,19 @@ local function getWeapon(player, char)
     return char:GetAttribute("Weapon") or player:GetAttribute("Weapon") or player:GetAttribute("CurrentWeapon")
 end
 
+local function useDrawingBackend()
+    return Flags.ESP.Mode == "Drawing" or (Flags.ESP.Mode == "Авто" and drawingOK)
+end
+
 local function updateESP()
     local cam = WS.CurrentCamera
     if not cam then return end
+    local useD = useDrawingBackend()
     local vp = cam.ViewportSize
 
     for _, player in ipairs(Players:GetPlayers()) do
         local c = espCache[player]
-        if not c then c = createESP(); espCache[player] = c end
+        if not c then c = {}; espCache[player] = c end
 
         local char = player.Character
         local hum  = char and char:FindFirstChildOfClass("Humanoid")
@@ -501,77 +542,119 @@ local function updateESP()
         local skip = (player == LP and not Flags.ESP.ShowSelf)
         if Flags.ESP.TeamCheck and LP.Team and player.Team == LP.Team then skip = true end
 
-        if not Flags.ESP.Enabled or skip or not (hum and hrp and head) or hum.Health <= 0 then
-            hideESP(c)
-            if char then chamsFor(player, char, Flags.ESP.Color, false) end
+        local alive = Flags.ESP.Enabled and not skip and hum and hrp and head and hum.Health > 0
+        local dist = alive and (hrp.Position - cam.CFrame.Position).Magnitude or 0
+        if alive and dist > Flags.ESP.MaxDistance then alive = false end
+
+        --  выбираем движок
+        if useD then
+            if c.bb then c.bb:Destroy(); c.bb, c.r = nil, nil end
+            if not c.d then c.d = createDrawingESP() end
         else
-            local dist = (hrp.Position - cam.CFrame.Position).Magnitude
-            if dist > Flags.ESP.MaxDistance then
-                hideESP(c)
-                if char then chamsFor(player, char, Flags.ESP.Color, false) end
+            if c.d then destroyDrawingESP(c.d); c.d = nil end
+            if char and (not c.bb or not c.bb.Parent) then
+                c.bb, c.r = createBillboardESP(char)
+            end
+        end
+
+        if c.bb then c.bb.MaxDistance = Flags.ESP.MaxDistance end
+
+        --  DRAWING
+        if c.d then
+            local d = c.d
+            if not alive then
+                hideDrawingESP(d)
+                if char then chamsFor(char, Flags.ESP.Color, false) end
             else
-                local top, topOn = cam:WorldToViewportPoint(head.Position + Vector3.new(0, 0.6, 0))
-                local bot, botOn = cam:WorldToViewportPoint(hrp.Position - Vector3.new(0, 3, 0))
-                if topOn and botOn then
+                local top, tOn = cam:WorldToViewportPoint(head.Position + Vector3.new(0, 0.6, 0))
+                local bot, bOn = cam:WorldToViewportPoint(hrp.Position - Vector3.new(0, 3, 0))
+                if tOn and bOn then
                     local color = Flags.ESP.TeamColor and player.TeamColor.Color or Flags.ESP.Color
-                    local h = math.clamp(math.abs(top.Y - bot.Y), 8, 2000)
+                    local h = math.clamp(math.abs(top.Y - bot.Y), 8, 3000)
                     local w = h * 0.55
                     local x, y = bot.X - w/2, top.Y
 
-                    if c.box then c.box.Color = color; c.box.Visible = Flags.ESP.Box
-                        c.box.Position = Vector2.new(x, y); c.box.Size = Vector2.new(w, h) end
-                    if c.boxFill then c.boxFill.Color = color; c.boxFill.Visible = Flags.ESP.Box and Flags.ESP.BoxFill
-                        c.boxFill.Position = Vector2.new(x, y); c.boxFill.Size = Vector2.new(w, h) end
+                    d.box.Color = color; d.box.Visible = Flags.ESP.Box
+                    d.box.Position = Vector2.new(x, y); d.box.Size = Vector2.new(w, h)
+                    d.boxFill.Color = color; d.boxFill.Visible = Flags.ESP.Box and Flags.ESP.BoxFill
+                    d.boxFill.Position = Vector2.new(x, y); d.boxFill.Size = Vector2.new(w, h)
 
-                    if c.name then c.name.Color = color; c.name.Visible = Flags.ESP.Name
-                        c.name.Text = player.DisplayName .. " (" .. player.Name .. ")"
-                        c.name.Position = Vector2.new(top.X, y - 17) end
+                    d.name.Color = color; d.name.Visible = Flags.ESP.Name
+                    d.name.Text = player.DisplayName .. " (@" .. player.Name .. ")"
+                    d.name.Position = Vector2.new(top.X, y - 17)
 
-                    if c.dist then c.dist.Visible = Flags.ESP.Distance
-                        c.dist.Text = string.format("%d m", math.floor(dist))
-                        c.dist.Position = Vector2.new(top.X, y + h + 3) end
+                    d.dist.Visible = Flags.ESP.Distance
+                    d.dist.Text = string.format("%d m", math.floor(dist))
+                    d.dist.Position = Vector2.new(top.X, y + h + 3)
 
-                    if c.weapon then
-                        local wpn = getWeapon(player, char)
-                        c.weapon.Visible = Flags.ESP.Weapon and wpn ~= nil
-                        c.weapon.Text = wpn or ""
-                        c.weapon.Position = Vector2.new(top.X, y + h + 17)
-                    end
+                    local wpn = getWeapon(player, char)
+                    d.weapon.Visible = Flags.ESP.Weapon and wpn ~= nil
+                    d.weapon.Text = wpn or ""
+                    d.weapon.Position = Vector2.new(top.X, y + h + 17)
 
-                    if c.hpBg then c.hpBg.Visible = Flags.ESP.Health
-                        c.hpBg.Position = Vector2.new(x - 6, y); c.hpBg.Size = Vector2.new(3, h) end
-                    if c.hp then
-                        local pct = math.clamp(hum.Health / math.max(hum.MaxHealth, 1), 0, 1)
-                        c.hp.Visible = Flags.ESP.Health
-                        c.hp.Color = Color3.fromRGB(255 * (1 - pct), 255 * pct, 40)
-                        c.hp.Position = Vector2.new(x - 6, y + h * (1 - pct))
-                        c.hp.Size = Vector2.new(3, h * pct)
-                    end
+                    d.hpBg.Visible = Flags.ESP.Health
+                    d.hpBg.Position = Vector2.new(x - 6, y); d.hpBg.Size = Vector2.new(3, h)
+                    local pct = math.clamp(hum.Health / math.max(hum.MaxHealth, 1), 0, 1)
+                    d.hp.Visible = Flags.ESP.Health
+                    d.hp.Color = Color3.fromRGB(255 * (1 - pct), 255 * pct, 40)
+                    d.hp.Position = Vector2.new(x - 6, y + h * (1 - pct))
+                    d.hp.Size = Vector2.new(3, h * pct)
 
-                    if c.tracer then c.tracer.Visible = Flags.ESP.Tracer
-                        c.tracer.Color = color
-                        c.tracer.From = Vector2.new(vp.X/2, vp.Y)
-                        c.tracer.To = Vector2.new(top.X, y + h) end
-
-                    if c.headDot then c.headDot.Visible = Flags.ESP.Box
-                        c.headDot.Color = color
-                        c.headDot.Position = Vector2.new(top.X, y) end
+                    d.tracer.Visible = Flags.ESP.Tracer
+                    d.tracer.Color = color
+                    d.tracer.From = Vector2.new(vp.X/2, vp.Y)
+                    d.tracer.To = Vector2.new(top.X, y + h)
                 else
-                    hideESP(c)
+                    hideDrawingESP(d)
                 end
-                chamsFor(player, char, color or Flags.ESP.Color, Flags.ESP.Chams and Flags.ESP.Enabled)
+                chamsFor(char, Flags.ESP.TeamColor and player.TeamColor.Color or Flags.ESP.Color,
+                    Flags.ESP.Chams and Flags.ESP.Enabled)
+            end
+        end
+
+        --  BILLBOARD
+        if c.bb and c.r then
+            local r = c.r
+            c.bb.Enabled = alive
+            if alive then
+                local color = Flags.ESP.TeamColor and player.TeamColor.Color or Flags.ESP.Color
+                r.box.Visible = Flags.ESP.Box
+                r.boxStroke.Color = color
+                r.fill.Visible = Flags.ESP.Box and Flags.ESP.BoxFill
+                r.fill.BackgroundColor3 = color
+                r.name.Visible = Flags.ESP.Name
+                r.name.TextColor3 = color
+                r.name.Text = player.DisplayName
+                r.dist.Visible = Flags.ESP.Distance
+                r.dist.Text = string.format("%d m", math.floor(dist))
+                r.weapon.Visible = Flags.ESP.Weapon and getWeapon(player, char) ~= nil
+                r.weapon.Text = getWeapon(player, char) or ""
+                r.hpBg.Visible = Flags.ESP.Health
+                local pct = math.clamp(hum.Health / math.max(hum.MaxHealth, 1), 0, 1)
+                r.hp.Visible = Flags.ESP.Health
+                r.hp.BackgroundColor3 = Color3.fromRGB(255 * (1 - pct), 255 * pct, 40)
+                r.hp.Size = UDim2.new(0.06, 0, pct, 0)
+                chamsFor(char, color, Flags.ESP.Chams and Flags.ESP.Enabled)
             end
         end
     end
 
     for p, c in pairs(espCache) do
-        if not p.Parent then destroyESP(c); espCache[p] = nil end
+        if not p.Parent then
+            if c.d then destroyDrawingESP(c.d) end
+            if c.bb then c.bb:Destroy() end
+            espCache[p] = nil
+        end
     end
 end
 
 Players.PlayerRemoving:Connect(function(p)
     local c = espCache[p]
-    if c then destroyESP(c); espCache[p] = nil end
+    if c then
+        if c.d then destroyDrawingESP(c.d) end
+        if c.bb then c.bb:Destroy() end
+        espCache[p] = nil
+    end
 end)
 
 --=====================================================================
@@ -587,32 +670,25 @@ local function setFPSBoost(on)
     if on and not FPS.active then
         FPS.active = true
         local s = FPS.saved
-        s.GlobalShadows = Lighting.GlobalShadows
-        Lighting.GlobalShadows = false
+        s.GlobalShadows = Lighting.GlobalShadows; Lighting.GlobalShadows = false
         s.EnvDiff, s.EnvSpec = Lighting.EnvironmentDiffuseScale, Lighting.EnvironmentSpecularScale
         Lighting.EnvironmentDiffuseScale, Lighting.EnvironmentSpecularScale = 0, 0
-
         local T = WS.Terrain
         s.WaterWaveSize, s.WaterWaveSpeed = T.WaterWaveSize, T.WaterWaveSpeed
         s.WaterReflectance, s.WaterTransparency = T.WaterReflectance, T.WaterTransparency
         T.WaterWaveSize, T.WaterWaveSpeed, T.WaterReflectance, T.WaterTransparency = 0, 0, 0, 1
-
         s.Effects = {}
         for _, e in ipairs(Lighting:GetChildren()) do
-            if e:IsA("PostEffect") then
-                table.insert(s.Effects, { o = e, v = e.Enabled }); e.Enabled = false
-            elseif e:IsA("Atmosphere") then
-                table.insert(s.Effects, { o = e, v = e.Density }); e.Density = 0
-            end
+            if e:IsA("PostEffect") then table.insert(s.Effects, {o = e, v = e.Enabled}); e.Enabled = false
+            elseif e:IsA("Atmosphere") then table.insert(s.Effects, {o = e, v = e.Density}); e.Density = 0 end
         end
-
         for _, d in ipairs(WS:GetDescendants()) do
             if d:IsA("BasePart") then d.CastShadow = false end
         end
         s.Emitters = {}
         for _, d in ipairs(WS:GetDescendants()) do
             if d:IsA("ParticleEmitter") and d.Name ~= "VeniceEmitter" then
-                table.insert(s.Emitters, { o = d, v = d.Rate }); d.Rate = 0
+                table.insert(s.Emitters, {o = d, v = d.Rate}); d.Rate = 0
             end
         end
         pcall(function() settings().Rendering.QualityLevel = Enum.QualityLevel.Level01 end)
@@ -630,9 +706,7 @@ local function setFPSBoost(on)
             end
         end
         for _, e in ipairs(s.Emitters or {}) do if e.o.Parent then e.o.Rate = e.v end end
-        for _, d in ipairs(WS:GetDescendants()) do
-            if d:IsA("BasePart") then d.CastShadow = true end
-        end
+        for _, d in ipairs(WS:GetDescendants()) do if d:IsA("BasePart") then d.CastShadow = true end end
         pcall(function() settings().Rendering.QualityLevel = Enum.QualityLevel.Level07 end)
     end
 end
@@ -674,31 +748,26 @@ local function applySky()
 end
 
 local function applySkyTextures(t)
-    local sky = getSky()
     if not t then return end
+    local sky = getSky()
     sky.SkyboxBk, sky.SkyboxDn, sky.SkyboxFt = t.Bk, t.Dn, t.Ft
     sky.SkyboxLf, sky.SkyboxRt, sky.SkyboxUp = t.Lf, t.Rt, t.Up
 end
 
 local SKY_PRESETS = {
-    ["День"]      = { ClockTime=14, Brightness=2,   FogEnd=4000, FogColor=Color3.fromRGB(175,205,240), Ambient=Color3.fromRGB(95,100,110), Outdoor=Color3.fromRGB(150,160,175), Stars=2000, Atmosphere=true, Density=0.25, Haze=0 },
-    ["Закат"]     = { ClockTime=17.7, Brightness=2.3, FogEnd=2600, FogColor=Color3.fromRGB(255,140,75), Ambient=Color3.fromRGB(125,85,70), Outdoor=Color3.fromRGB(190,115,90), Stars=1500, Atmosphere=true, Density=0.35, Haze=1 },
-    ["Ночь"]      = { ClockTime=0, Brightness=1.2,  FogEnd=2000, FogColor=Color3.fromRGB(18,22,42),   Ambient=Color3.fromRGB(45,50,72),  Outdoor=Color3.fromRGB(58,64,90),  Stars=6000, Atmosphere=true, Density=0.2, Haze=0 },
-    ["Космос"]    = { ClockTime=0, Brightness=0.5,  FogEnd=8000, FogColor=Color3.fromRGB(4,4,14),     Ambient=Color3.fromRGB(28,28,45),  Outdoor=Color3.fromRGB(40,40,65),  Stars=9000, Atmosphere=false, Density=0, Haze=0, Tex=SPACE_TEX },
-    ["Красный"]   = { ClockTime=18.5, Brightness=2, FogEnd=1800, FogColor=Color3.fromRGB(180,30,30),  Ambient=Color3.fromRGB(120,40,40), Outdoor=Color3.fromRGB(160,55,55),  Stars=3000, Atmosphere=true, Density=0.5, Haze=2 },
-    ["Фиолетовый"]= { ClockTime=19, Brightness=1.8, FogEnd=2200, FogColor=Color3.fromRGB(120,60,220), Ambient=Color3.fromRGB(90,60,140), Outdoor=Color3.fromRGB(120,85,190), Stars=4000, Atmosphere=true, Density=0.45, Haze=1 },
-    ["Матрица"]   = { ClockTime=1, Brightness=1.4,  FogEnd=1400, FogColor=Color3.fromRGB(10,60,25),   Ambient=Color3.fromRGB(30,90,45),  Outdoor=Color3.fromRGB(45,130,65), Stars=2000, Atmosphere=true, Density=0.4, Haze=0 },
-    ["Туман"]     = { ClockTime=8, Brightness=1.6,  FogEnd=650,  FogColor=Color3.fromRGB(200,205,215), Ambient=Color3.fromRGB(150,155,165), Outdoor=Color3.fromRGB(180,185,195), Stars=500, Atmosphere=true, Density=0.6, Haze=3 },
-    ["Ад"]        = { ClockTime=17, Brightness=2.4, FogEnd=1200, FogColor=Color3.fromRGB(255,90,20),  Ambient=Color3.fromRGB(140,60,30), Outdoor=Color3.fromRGB(200,90,40),  Stars=1000, Atmosphere=true, Density=0.6, Haze=2 },
+    ["День"]       = { ClockTime=14, Brightness=2, FogEnd=4000, FogColor=Color3.fromRGB(175,205,240), Ambient=Color3.fromRGB(95,100,110), Outdoor=Color3.fromRGB(150,160,175), Stars=2000, Atmosphere=true, Density=0.25, Haze=0 },
+    ["Закат"]      = { ClockTime=17.7, Brightness=2.3, FogEnd=2600, FogColor=Color3.fromRGB(255,140,75), Ambient=Color3.fromRGB(125,85,70), Outdoor=Color3.fromRGB(190,115,90), Stars=1500, Atmosphere=true, Density=0.35, Haze=1 },
+    ["Ночь"]       = { ClockTime=0, Brightness=1.2, FogEnd=2000, FogColor=Color3.fromRGB(18,22,42), Ambient=Color3.fromRGB(45,50,72), Outdoor=Color3.fromRGB(58,64,90), Stars=6000, Atmosphere=true, Density=0.2, Haze=0 },
+    ["Космос"]     = { ClockTime=0, Brightness=0.5, FogEnd=8000, FogColor=Color3.fromRGB(4,4,14), Ambient=Color3.fromRGB(28,28,45), Outdoor=Color3.fromRGB(40,40,65), Stars=9000, Atmosphere=false, Density=0, Haze=0, Tex=SPACE_TEX },
+    ["Красный"]    = { ClockTime=18.5, Brightness=2, FogEnd=1800, FogColor=Color3.fromRGB(180,30,30), Ambient=Color3.fromRGB(120,40,40), Outdoor=Color3.fromRGB(160,55,55), Stars=3000, Atmosphere=true, Density=0.5, Haze=2 },
+    ["Фиолетовый"] = { ClockTime=19, Brightness=1.8, FogEnd=2200, FogColor=Color3.fromRGB(120,60,220), Ambient=Color3.fromRGB(90,60,140), Outdoor=Color3.fromRGB(120,85,190), Stars=4000, Atmosphere=true, Density=0.45, Haze=1 },
+    ["Матрица"]    = { ClockTime=1, Brightness=1.4, FogEnd=1400, FogColor=Color3.fromRGB(10,60,25), Ambient=Color3.fromRGB(30,90,45), Outdoor=Color3.fromRGB(45,130,65), Stars=2000, Atmosphere=true, Density=0.4, Haze=0 },
+    ["Туман"]      = { ClockTime=8, Brightness=1.6, FogEnd=650, FogColor=Color3.fromRGB(200,205,215), Ambient=Color3.fromRGB(150,155,165), Outdoor=Color3.fromRGB(180,185,195), Stars=500, Atmosphere=true, Density=0.6, Haze=3 },
+    ["Ад"]         = { ClockTime=17, Brightness=2.4, FogEnd=1200, FogColor=Color3.fromRGB(255,90,20), Ambient=Color3.fromRGB(140,60,30), Outdoor=Color3.fromRGB(200,90,40), Stars=1000, Atmosphere=true, Density=0.6, Haze=2 },
 }
 
 local function applySkyPreset(name)
-    if name == "Сброс" then
-        applySkyTextures(nil)
-        Flags.Sky.Stars = 3000
-        applySky()
-        return
-    end
+    if name == "Сброс" then Flags.Sky.Stars = 3000; applySky(); return end
     local p = SKY_PRESETS[name]
     if not p then return end
     Flags.Sky.ClockTime, Flags.Sky.Brightness = p.ClockTime, p.Brightness
@@ -714,37 +783,30 @@ end
 --  ЧАСТИЦЫ
 --=====================================================================
 local PartHost, Emitter
-
 local TEX = {
-    ["Искры"]   = "rbxasset://textures/particles/sparkles_main.dds",
-    ["Дым"]     = "rbxasset://textures/particles/smoke_main.dds",
-    ["Огонь"]   = "rbxasset://textures/particles/fire_main.dds",
-    ["Свечение"]= "rbxasset://textures/particles/glow_main.dds",
-    ["Взрыв"]   = "rbxasset://textures/particles/explosion01_implosion_main.dds",
+    ["Искры"] = "rbxasset://textures/particles/sparkles_main.dds",
+    ["Дым"] = "rbxasset://textures/particles/smoke_main.dds",
+    ["Огонь"] = "rbxasset://textures/particles/fire_main.dds",
+    ["Свечение"] = "rbxasset://textures/particles/glow_main.dds",
+    ["Взрыв"] = "rbxasset://textures/particles/explosion01_implosion_main.dds",
 }
-
-local function ensureParticles()
-    if PartHost and PartHost.Parent then return end
-    PartHost = Instance.new("Part")
-    PartHost.Name = "VeniceParticleHost"
-    PartHost.Anchored, PartHost.CanCollide = true, false
-    PartHost.CanQuery, PartHost.CanTouch = false, false
-    PartHost.Transparency = 1
-    PartHost.Size = Vector3.new(1,1,1)
-    PartHost.Parent = WS
-
-    Emitter = Instance.new("ParticleEmitter")
-    Emitter.Name = "VeniceEmitter"
-    Emitter.SpreadAngle = Vector2.new(180,180)
-    Emitter.Parent = PartHost
-end
 
 local function applyParticles()
     if not Flags.Particles.Enabled then
         if PartHost then PartHost:Destroy(); PartHost, Emitter = nil, nil end
         return
     end
-    ensureParticles()
+    if not (PartHost and PartHost.Parent) then
+        PartHost = Instance.new("Part")
+        PartHost.Name = "VeniceParticleHost"
+        PartHost.Anchored, PartHost.CanCollide = true, false
+        PartHost.CanQuery, PartHost.CanTouch = false, false
+        PartHost.Transparency = 1; PartHost.Size = Vector3.new(1,1,1)
+        PartHost.Parent = WS
+        Emitter = Instance.new("ParticleEmitter")
+        Emitter.Name = "VeniceEmitter"
+        Emitter.Parent = PartHost
+    end
     local P = Flags.Particles
     Emitter.Texture = P.Texture
     Emitter.Rate = P.Rate
@@ -762,28 +824,146 @@ local function applyParticles()
         NumberSequenceKeypoint.new(1, P.Size * 0.2),
     })
     Emitter.Transparency = NumberSequence.new({
-        NumberSequenceKeypoint.new(0, 1),
-        NumberSequenceKeypoint.new(0.2, 0),
-        NumberSequenceKeypoint.new(0.8, 0),
-        NumberSequenceKeypoint.new(1, 1),
+        NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.2, 0),
+        NumberSequenceKeypoint.new(0.8, 0), NumberSequenceKeypoint.new(1, 1),
     })
 end
 
 local PART_PRESETS = {
-    ["Искры"]   = { Texture=TEX["Искры"],   Rate=45, Speed=3, Lifetime=3, Size=0.6, Spread=180, AccelY=0,  RotSpeed=1, Light=1,   Color=Color3.fromRGB(255,240,180) },
+    ["Искры"]   = { Texture=TEX["Искры"],   Rate=45, Speed=3, Lifetime=3, Size=0.6, Spread=180, AccelY=0, RotSpeed=1, Light=1, Color=Color3.fromRGB(255,240,180) },
     ["Снег"]    = { Texture=TEX["Искры"],   Rate=120,Speed=1, Lifetime=7, Size=0.35,Spread=180, AccelY=-1.5, RotSpeed=0.6, Light=0.1, Color=Color3.fromRGB(255,255,255) },
-    ["Огонь"]   = { Texture=TEX["Огонь"],   Rate=70, Speed=2, Lifetime=1.6,Size=2.2, Spread=45,  AccelY=4,  RotSpeed=0.4, Light=1,   Color=Color3.fromRGB(255,140,40) },
-    ["Звёзды"]  = { Texture=TEX["Свечение"],Rate=25, Speed=0.6,Lifetime=5, Size=1.1, Spread=180, AccelY=0,  RotSpeed=0.2, Light=1,   Color=Color3.fromRGB(150,200,255) },
-    ["Пузыри"]  = { Texture=TEX["Свечение"],Rate=30, Speed=1.2,Lifetime=6, Size=0.9, Spread=180, AccelY=2,  RotSpeed=0.3, Light=0.4, Color=Color3.fromRGB(140,255,220) },
-    ["Пыль"]    = { Texture=TEX["Дым"],     Rate=40, Speed=0.8,Lifetime=6, Size=1.6, Spread=180, AccelY=0.2,RotSpeed=0.2, Light=0,   Color=Color3.fromRGB(210,205,190) },
+    ["Огонь"]   = { Texture=TEX["Огонь"],   Rate=70, Speed=2, Lifetime=1.6,Size=2.2, Spread=45,  AccelY=4, RotSpeed=0.4, Light=1, Color=Color3.fromRGB(255,140,40) },
+    ["Звёзды"]  = { Texture=TEX["Свечение"],Rate=25, Speed=0.6,Lifetime=5, Size=1.1, Spread=180, AccelY=0, RotSpeed=0.2, Light=1, Color=Color3.fromRGB(150,200,255) },
+    ["Пузыри"]  = { Texture=TEX["Свечение"],Rate=30, Speed=1.2,Lifetime=6, Size=0.9, Spread=180, AccelY=2, RotSpeed=0.3, Light=0.4, Color=Color3.fromRGB(140,255,220) },
+    ["Пыль"]    = { Texture=TEX["Дым"],     Rate=40, Speed=0.8,Lifetime=6, Size=1.6, Spread=180, AccelY=0.2,RotSpeed=0.2, Light=0, Color=Color3.fromRGB(210,205,190) },
     ["Матрица"] = { Texture=TEX["Свечение"],Rate=60, Speed=2.5,Lifetime=3, Size=0.7, Spread=180, AccelY=-2, RotSpeed=0.5, Light=0.8, Color=Color3.fromRGB(60,255,120) },
-    ["Кровь"]   = { Texture=TEX["Взрыв"],   Rate=35, Speed=3, Lifetime=2.5,Size=1.2, Spread=180, AccelY=-3, RotSpeed=0.8, Light=0,   Color=Color3.fromRGB(200,20,20) },
+    ["Кровь"]   = { Texture=TEX["Взрыв"],   Rate=35, Speed=3, Lifetime=2.5,Size=1.2, Spread=180, AccelY=-3, RotSpeed=0.8, Light=0, Color=Color3.fromRGB(200,20,20) },
 }
+
+--=====================================================================
+--  SKINCHANGER
+--=====================================================================
+local skinOriginals = setmetatable({}, { __mode = "k" })
+
+local function saveOriginal(part)
+    if skinOriginals[part] then return end
+    local t = { Material = part.Material, Color = part.Color,
+                Reflectance = part.Reflectance, Transparency = part.Transparency }
+    if part:IsA("MeshPart") then t.TextureID = part.TextureID end
+    local sm = part:FindFirstChildOfClass("SpecialMesh")
+    if sm then t.SM_Texture, t.SM_Mesh = sm.TextureId, sm.MeshId end
+    skinOriginals[part] = t
+end
+
+local function applySkinToPart(part, colorOverride)
+    if not part:IsA("BasePart") then return end
+    saveOriginal(part)
+    local S = Flags.Skin
+    if S.Material ~= "Изначально" then
+        local m = Enum.Material[S.Material]
+        if m then part.Material = m end
+    end
+    part.Color = colorOverride or S.Color
+    part.Reflectance = S.Reflectance
+    if S.UseTransparency then part.Transparency = S.Transparency end
+    if S.TextureId ~= "" then
+        if part:IsA("MeshPart") then part.TextureID = S.TextureId end
+        local sm = part:FindFirstChildOfClass("SpecialMesh")
+        if sm then sm.TextureId = S.TextureId end
+        for _, d in ipairs(part:GetChildren()) do
+            if d:IsA("Decal") or d:IsA("Texture") then d.Texture = S.TextureId end
+        end
+    end
+    if S.MeshId ~= "" then
+        if part:IsA("MeshPart") then part.MeshId = S.MeshId end
+        local sm = part:FindFirstChildOfClass("SpecialMesh")
+        if sm then sm.MeshId = S.MeshId end
+    end
+end
+
+local function restoreTool(tool)
+    for _, d in ipairs(tool:GetDescendants()) do
+        local o = skinOriginals[d]
+        if o then
+            if d:IsA("BasePart") then
+                d.Material, d.Color = o.Material, o.Color
+                d.Reflectance, d.Transparency = o.Reflectance, o.Transparency
+                if d:IsA("MeshPart") and o.TextureID then d.TextureID = o.TextureID end
+                local sm = d:FindFirstChildOfClass("SpecialMesh")
+                if sm and o.SM_Texture then sm.TextureId, sm.MeshId = o.SM_Texture, o.SM_Mesh end
+            end
+            skinOriginals[d] = nil
+        end
+    end
+end
+
+local function allTools()
+    local list = {}
+    if LP.Character then
+        for _, t in ipairs(LP.Character:GetChildren()) do
+            if t:IsA("Tool") then table.insert(list, t) end
+        end
+    end
+    local bp = LP:FindFirstChildOfClass("Backpack")
+    if bp and Flags.Skin.ApplyAll then
+        for _, t in ipairs(bp:GetChildren()) do
+            if t:IsA("Tool") then table.insert(list, t) end
+        end
+    end
+    return list
+end
+
+local function applySkinAll(colorOverride)
+    for _, t in ipairs(allTools()) do
+        for _, d in ipairs(t:GetDescendants()) do
+            if d:IsA("BasePart") then applySkinToPart(d, colorOverride) end
+        end
+    end
+end
+
+local function hookTool(tool)
+    if not tool:IsA("Tool") then return end
+    tool.Equipped:Connect(function()
+        if not Flags.Skin.Enabled then return end
+        task.wait(0.05)
+        for _, d in ipairs(tool:GetDescendants()) do
+            if d:IsA("BasePart") then applySkinToPart(d) end
+        end
+    end)
+end
+
+if LP.Character then
+    for _, t in ipairs(LP.Character:GetChildren()) do hookTool(t) end
+    LP.Character.ChildAdded:Connect(function(ch)
+        if ch:IsA("Tool") then
+            hookTool(ch)
+            if Flags.Skin.Enabled then
+                task.wait(0.05)
+                for _, d in ipairs(ch:GetDescendants()) do
+                    if d:IsA("BasePart") then applySkinToPart(d) end
+                end
+            end
+        end
+    end)
+end
+local bp0 = LP:FindFirstChildOfClass("Backpack")
+if bp0 then bp0.ChildAdded:Connect(hookTool) end
+
+LP.CharacterAdded:Connect(function(char)
+    task.wait(1)
+    for _, t in ipairs(char:GetChildren()) do hookTool(t) end
+    if Flags.Skin.Enabled then applySkinAll() end
+end)
 
 --=====================================================================
 --  НАПОЛНЕНИЕ ВКЛАДОК
 --=====================================================================
 -- ESP ------------------------------------------------------------------
+addSection(tabESP, "Движок отрисовки")
+addDropdown(tabESP, "Режим ESP", { "Авто", "Drawing", "Billboard" }, Flags.ESP.Mode, function(v)
+    Flags.ESP.Mode = v
+end)
+
 addSection(tabESP, "Основное")
 addToggle(tabESP, "Включить ESP", Flags.ESP.Enabled, function(v) Flags.ESP.Enabled = v end)
 addToggle(tabESP, "Коробка", Flags.ESP.Box, function(v) Flags.ESP.Box = v end)
@@ -795,26 +975,28 @@ addToggle(tabESP, "Имя", Flags.ESP.Name, function(v) Flags.ESP.Name = v end)
 addToggle(tabESP, "Здоровье", Flags.ESP.Health, function(v) Flags.ESP.Health = v end)
 addToggle(tabESP, "Оружие", Flags.ESP.Weapon, function(v) Flags.ESP.Weapon = v end)
 addToggle(tabESP, "Дистанция", Flags.ESP.Distance, function(v) Flags.ESP.Distance = v end)
-addToggle(tabESP, "Трассеры", Flags.ESP.Tracer, function(v) Flags.ESP.Tracer = v end)
+addToggle(tabESP, "Трассеры (только Drawing)", Flags.ESP.Tracer, function(v) Flags.ESP.Tracer = v end)
 
 addSection(tabESP, "Настройки")
 addToggle(tabESP, "Цвет команды", Flags.ESP.TeamColor, function(v) Flags.ESP.TeamColor = v end)
 addToggle(tabESP, "Игнорировать союзников", Flags.ESP.TeamCheck, function(v) Flags.ESP.TeamCheck = v end)
-addToggle(tabESP, "Показывать себя", false, function(v) Flags.ESP.ShowSelf = v end)
+addToggle(tabESP, "Показывать себя", Flags.ESP.ShowSelf, function(v) Flags.ESP.ShowSelf = v end)
 addColorPicker(tabESP, "Цвет ESP", Flags.ESP.Color, function(c) Flags.ESP.Color = c end)
 addSlider(tabESP, "Макс. дистанция", 100, 6000, Flags.ESP.MaxDistance, 0, function(v) Flags.ESP.MaxDistance = v end)
 addSlider(tabESP, "Размер текста", 8, 22, Flags.ESP.TextSize, 0, function(v)
     Flags.ESP.TextSize = v
     for _, c in pairs(espCache) do
-        if c.name then c.name.Size = v end
-        if c.dist then c.dist.Size = math.max(8, v - 1) end
-        if c.weapon then c.weapon.Size = math.max(8, v - 1) end
+        if c.d then
+            if c.d.name then c.d.name.Size = v end
+            if c.d.dist then c.d.dist.Size = math.max(8, v - 1) end
+            if c.d.weapon then c.d.weapon.Size = math.max(8, v - 1) end
+        end
     end
 end)
 
 -- Игроки ---------------------------------------------------------------
 addSection(tabList, "Данные игроков")
-local listScroll = new("ScrollingFrame", { Parent = tabList, Size = UDim2.new(1,-8,0,300),
+local listScroll = new("ScrollingFrame", { Parent = tabList, Size = UDim2.new(1,-8,0,320),
     BackgroundColor3 = Theme.Card, BorderSizePixel = 0, ScrollBarThickness = 3,
     ScrollBarImageColor3 = Theme.Stroke, CanvasSize = UDim2.new(0,0,0,0),
     AutomaticCanvasSize = Enum.AutomaticSize.Y })
@@ -824,27 +1006,22 @@ new("UIPadding", { Parent = listScroll, PaddingTop = UDim.new(0,6), PaddingBotto
     PaddingLeft = UDim.new(0,6), PaddingRight = UDim.new(0,6) })
 
 local function refreshList()
-    for _, c in ipairs(listScroll:GetChildren()) do
-        if c:IsA("Frame") then c:Destroy() end
-    end
+    for _, c in ipairs(listScroll:GetChildren()) do if c:IsA("Frame") then c:Destroy() end end
     local cam = WS.CurrentCamera
     local sorted = {}
     for _, p in ipairs(Players:GetPlayers()) do table.insert(sorted, p) end
     table.sort(sorted, function(a, b) return a.Name:lower() < b.Name:lower() end)
-
     for _, p in ipairs(sorted) do
         local char = p.Character
         local hum = char and char:FindFirstChildOfClass("Humanoid")
         local hrp = char and char:FindFirstChild("HumanoidRootPart")
         local dist = (hrp and cam) and math.floor((hrp.Position - cam.CFrame.Position).Magnitude) or 0
         local wpn = char and getWeapon(p, char) or "—"
-
         local row = new("Frame", { Parent = listScroll, Size = UDim2.new(1,0,0,28),
             BackgroundColor3 = Theme.Bg, BorderSizePixel = 0 })
         corner(row,5)
-        local teamCol = p.TeamColor and p.TeamColor.Color or Theme.Sub
         new("Frame", { Parent = row, Size = UDim2.new(0,3,0,18), Position = UDim2.new(0,4,0.5,-9),
-            BackgroundColor3 = teamCol, BorderSizePixel = 0 })
+            BackgroundColor3 = (p.TeamColor and p.TeamColor.Color) or Theme.Sub, BorderSizePixel = 0 })
         new("TextLabel", { Parent = row, BackgroundTransparency = 1, Position = UDim2.new(0,12,0,0),
             Size = UDim2.new(0.55,0,1,0), Text = p.DisplayName .. "  (@" .. p.Name .. ")",
             Font = Enum.Font.GothamMedium, TextSize = 12, TextColor3 = Theme.Text,
@@ -868,7 +1045,6 @@ addButton(tabVis, "Сбросить FOV (70)", function() Flags.Visual.FOV = 70 
 
 addSection(tabVis, "Производительность")
 addToggle(tabVis, "FPS Boost (макс. FPS)", Flags.Visual.FPSBoost, function(v) setFPSBoost(v) end)
-addSlider(tabVis, "Яркость мира", 0, 5, 2, 1, function(v) Lighting.Brightness = v end)
 addButton(tabVis, "Убрать тени со всех объектов", function()
     for _, d in ipairs(WS:GetDescendants()) do
         if d:IsA("BasePart") then d.CastShadow = false end
@@ -890,7 +1066,7 @@ addSection(tabSky, "Ручная настройка")
 addSlider(tabSky, "Время суток", 0, 24, Flags.Sky.ClockTime, 1, function(v) Flags.Sky.ClockTime = v; applySky() end)
 addSlider(tabSky, "Яркость", 0, 5, Flags.Sky.Brightness, 1, function(v) Flags.Sky.Brightness = v; applySky() end)
 addSlider(tabSky, "Дальность тумана", 100, 10000, Flags.Sky.FogEnd, 0, function(v) Flags.Sky.FogEnd = v; applySky() end)
-addSlider(tabSky, "Плотность тумана (начало)", 0, 5000, Flags.Sky.FogStart, 0, function(v) Flags.Sky.FogStart = v; applySky() end)
+addSlider(tabSky, "Начало тумана", 0, 5000, Flags.Sky.FogStart, 0, function(v) Flags.Sky.FogStart = v; applySky() end)
 addColorPicker(tabSky, "Цвет тумана", Flags.Sky.FogColor, function(c) Flags.Sky.FogColor = c; applySky() end)
 addColorPicker(tabSky, "Освещение (Ambient)", Flags.Sky.Ambient, function(c) Flags.Sky.Ambient = c; applySky() end)
 addColorPicker(tabSky, "Уличный свет (Outdoor)", Flags.Sky.Outdoor, function(c) Flags.Sky.Outdoor = c; applySky() end)
@@ -906,9 +1082,7 @@ addSection(tabSky, "Свой скайбокс (6 ID через запятую)")
 local skyBox = addTextBox(tabSky, "Bk,Dn,Ft,Lf,Rt,Up", "", function(txt)
     local ids = {}
     for s in string.gmatch(txt, "[^,%s]+") do table.insert(ids, s) end
-    if #ids == 6 then
-        applySkyTextures({ Bk = ids[1], Dn = ids[2], Ft = ids[3], Lf = ids[4], Rt = ids[5], Up = ids[6] })
-    end
+    if #ids == 6 then applySkyTextures({ Bk=ids[1], Dn=ids[2], Ft=ids[3], Lf=ids[4], Rt=ids[5], Up=ids[6] }) end
 end)
 addButton(tabSky, "Применить / вернуть стандарт", function()
     if skyBox.Text == "" then
@@ -918,9 +1092,7 @@ addButton(tabSky, "Применить / вернуть стандарт", functi
     else
         local ids = {}
         for s in string.gmatch(skyBox.Text, "[^,%s]+") do table.insert(ids, s) end
-        if #ids == 6 then
-            applySkyTextures({ Bk = ids[1], Dn = ids[2], Ft = ids[3], Lf = ids[4], Rt = ids[5], Up = ids[6] })
-        end
+        if #ids == 6 then applySkyTextures({ Bk=ids[1], Dn=ids[2], Ft=ids[3], Lf=ids[4], Rt=ids[5], Up=ids[6] }) end
     end
 end)
 
@@ -937,12 +1109,10 @@ addDropdown(tabPart, "Пресет", { "Искры","Снег","Огонь","З�
     Flags.Particles.Light, Flags.Particles.Color = p.Light, p.Color
     applyParticles()
 end)
-
 addSection(tabPart, "Текстура")
 addDropdown(tabPart, "Тип", { "Искры","Дым","Огонь","Свечение","Взрыв" }, "Искры", function(v)
     Flags.Particles.Texture = TEX[v]; applyParticles()
 end)
-
 addSection(tabPart, "Параметры")
 addSlider(tabPart, "Количество (Rate)", 1, 400, Flags.Particles.Rate, 0, function(v) Flags.Particles.Rate = v; applyParticles() end)
 addSlider(tabPart, "Скорость", 0, 30, Flags.Particles.Speed, 1, function(v) Flags.Particles.Speed = v; applyParticles() end)
@@ -950,7 +1120,7 @@ addSlider(tabPart, "Время жизни", 0.3, 15, Flags.Particles.Lifetime, 1
 addSlider(tabPart, "Размер", 0.05, 8, Flags.Particles.Size, 2, function(v) Flags.Particles.Size = v; applyParticles() end)
 addSlider(tabPart, "Разброс", 0, 180, Flags.Particles.Spread, 0, function(v) Flags.Particles.Spread = v; applyParticles() end)
 addSlider(tabPart, "Вращение", 0, 10, Flags.Particles.RotSpeed, 1, function(v) Flags.Particles.RotSpeed = v; applyParticles() end)
-addSlider(tabPart, "Гравитация (вверх/вниз)", -20, 20, Flags.Particles.AccelY, 1, function(v) Flags.Particles.AccelY = v; applyParticles() end)
+addSlider(tabPart, "Гравитация", -20, 20, Flags.Particles.AccelY, 1, function(v) Flags.Particles.AccelY = v; applyParticles() end)
 addSlider(tabPart, "Свечение", 0, 1, Flags.Particles.Light, 2, function(v) Flags.Particles.Light = v; applyParticles() end)
 addColorPicker(tabPart, "Цвет частиц", Flags.Particles.Color, function(c) Flags.Particles.Color = c; applyParticles() end)
 addButton(tabPart, "Очистить частицы", function()
@@ -958,12 +1128,128 @@ addButton(tabPart, "Очистить частицы", function()
     if PartHost then PartHost:Destroy(); PartHost, Emitter = nil, nil end
 end)
 
+-- Скины ----------------------------------------------------------------
+addSection(tabSkin, "SkinChanger (оружие / ножи)")
+addToggle(tabSkin, "Включить SkinChanger", Flags.Skin.Enabled, function(v)
+    Flags.Skin.Enabled = v
+    if v then applySkinAll() else
+        for _, t in ipairs(allTools()) do restoreTool(t) end
+    end
+end)
+addToggle(tabSkin, "Применять ко всему инвентарю", Flags.Skin.ApplyAll, function(v) Flags.Skin.ApplyAll = v end)
+addToggle(tabSkin, "RGB перелив", Flags.Skin.Rainbow, function(v) Flags.Skin.Rainbow = v end)
+
+addSection(tabSkin, "Внешний вид")
+addDropdown(tabSkin, "Материал", { "Изначально","Plastic","Metal","Wood","WoodPlanks","Marble","Slate",
+    "Concrete","Granite","Brick","Glass","Neon","ForceField","Ice","DiamondPlate","Foil","Cobblestone",
+    "Sand","Fabric","Grass","Asphalt","CorrodedMetal" }, Flags.Skin.Material, function(v)
+    Flags.Skin.Material = v
+    if Flags.Skin.Enabled then applySkinAll() end
+end)
+addColorPicker(tabSkin, "Цвет оружия", Flags.Skin.Color, function(c)
+    Flags.Skin.Color = c
+    if Flags.Skin.Enabled and not Flags.Skin.Rainbow then applySkinAll() end
+end)
+addSlider(tabSkin, "Отражаемость", 0, 1, Flags.Skin.Reflectance, 2, function(v)
+    Flags.Skin.Reflectance = v
+    if Flags.Skin.Enabled then applySkinAll() end
+end)
+addToggle(tabSkin, "Менять прозрачность", Flags.Skin.UseTransparency, function(v) Flags.Skin.UseTransparency = v end)
+addSlider(tabSkin, "Прозрачность", 0, 1, Flags.Skin.Transparency, 2, function(v)
+    Flags.Skin.Transparency = v
+    if Flags.Skin.Enabled then applySkinAll() end
+end)
+
+addSection(tabSkin, "Текстура / Меш (asset id)")
+local texBox = addTextBox(tabSkin, "Texture ID", "", function(txt)
+    Flags.Skin.TextureId = txt
+    if Flags.Skin.Enabled then applySkinAll() end
+end)
+local meshBox = addTextBox(tabSkin, "Mesh ID", "", function(txt)
+    Flags.Skin.MeshId = txt
+    if Flags.Skin.Enabled then applySkinAll() end
+end)
+addButton(tabSkin, "Применить к текущему оружию", function()
+    local tool = LP.Character and LP.Character:FindFirstChildOfClass("Tool")
+    if not tool then return end
+    for _, d in ipairs(tool:GetDescendants()) do
+        if d:IsA("BasePart") then applySkinToPart(d) end
+    end
+end)
+addButton(tabSkin, "Вернуть оригинал", function()
+    for _, t in ipairs(allTools()) do restoreTool(t) end
+end)
+
+addSection(tabSkin, "Скины из игры")
+local skinList = new("ScrollingFrame", { Parent = tabSkin, Size = UDim2.new(1,-8,0,220),
+    BackgroundColor3 = Theme.Card, BorderSizePixel = 0, ScrollBarThickness = 3,
+    ScrollBarImageColor3 = Theme.Stroke, CanvasSize = UDim2.new(0,0,0,0),
+    AutomaticCanvasSize = Enum.AutomaticSize.Y })
+corner(skinList,7); stroke(skinList, Theme.Stroke, 1, 0.5)
+new("UIListLayout", { Parent = skinList, Padding = UDim.new(0,3), SortOrder = Enum.SortOrder.LayoutOrder })
+new("UIPadding", { Parent = skinList, PaddingTop = UDim.new(0,6), PaddingBottom = UDim.new(0,6),
+    PaddingLeft = UDim.new(0,6), PaddingRight = UDim.new(0,6) })
+
+local function scanSkins()
+    for _, c in ipairs(skinList:GetChildren()) do if c:IsA("TextButton") then c:Destroy() end end
+    local seen, results = {}, {}
+    local roots = { RS, WS }
+    for _, root in ipairs(roots) do
+        local list = root:GetDescendants()
+        for i = 1, math.min(#list, 25000) do
+            local d = list[i]
+            local id
+            if d:IsA("MeshPart") then id = d.TextureID
+            elseif d:IsA("SpecialMesh") then id = d.TextureId
+            elseif d:IsA("Decal") or d:IsA("Texture") then id = d.Texture end
+            if id and id ~= "" and not seen[id] then
+                seen[id] = true
+                local par = d.Parent and d.Parent.Name or ""
+                if string.find(string.lower(d.Name .. par), "skin")
+                   or d:FindFirstAncestorOfClass("Tool") then
+                    table.insert(results, { name = d.Name .. "  (" .. par .. ")", id = id })
+                end
+            end
+        end
+    end
+    if #results == 0 then
+        for id, _ in pairs(seen) do table.insert(results, { name = "texture", id = id }) end
+    end
+    for i = 1, math.min(#results, 250) do
+        local r = results[i]
+        local b = new("TextButton", { Parent = skinList, Size = UDim2.new(1,0,0,26),
+            BackgroundColor3 = Theme.Bg, BorderSizePixel = 0, Text = r.name,
+            Font = Enum.Font.Gotham, TextSize = 11, TextColor3 = Theme.Sub,
+            TextXAlignment = Enum.TextXAlignment.Left, AutoButtonColor = false })
+        corner(b,5)
+        new("UIPadding", { Parent = b, PaddingLeft = UDim.new(0,8) })
+        b.MouseEnter:Connect(function() b.BackgroundColor3 = Theme.Hover; b.TextColor3 = Theme.Text end)
+        b.MouseLeave:Connect(function() b.BackgroundColor3 = Theme.Bg; b.TextColor3 = Theme.Sub end)
+        b.MouseButton1Click:Connect(function()
+            Flags.Skin.TextureId = r.id
+            texBox.Text = r.id
+            Flags.Skin.Enabled = true
+            applySkinAll()
+        end)
+    end
+end
+
+addButton(tabSkin, "Сканировать скины в игре", function()
+    task.spawn(scanSkins)
+end)
+
 -- BunnyHop -------------------------------------------------------------
 addSection(tabBhop, "AutoBunnyHop")
 addToggle(tabBhop, "Включить AutoBunnyHop", Flags.Bhop.Enabled, function(v) Flags.Bhop.Enabled = v end)
 addToggle(tabBhop, "Работать без удержания пробела", Flags.Bhop.Always, function(v) Flags.Bhop.Always = v end)
 addToggle(tabBhop, "Только при движении", Flags.Bhop.RequireMove, function(v) Flags.Bhop.RequireMove = v end)
-addSlider(tabBhop, "Сила прыжка", 30, 150, Flags.Bhop.JumpPower, 0, function(v)
+
+addSection(tabBhop, "AutoStrafe (набор скорости)")
+addToggle(tabBhop, "Авто-стрейф в воздухе", Flags.Bhop.AutoStrafe, function(v) Flags.Bhop.AutoStrafe = v end)
+addSlider(tabBhop, "Угол стрейфа", 5, 70, Flags.Bhop.StrafeAngle, 0, function(v) Flags.Bhop.StrafeAngle = v end)
+
+addSection(tabBhop, "Прыжок")
+addSlider(tabBhop, "Сила прыжка", 30, 200, Flags.Bhop.JumpPower, 0, function(v)
     Flags.Bhop.JumpPower = v
     local hum = LP.Character and LP.Character:FindFirstChildOfClass("Humanoid")
     if hum then pcall(function() hum.UseJumpPower = true; hum.JumpPower = v end) end
@@ -984,10 +1270,16 @@ addColorPicker(tabCfg, "Акцентный цвет", Theme.Accent, function(c)
     end
 end)
 addSlider(tabCfg, "Прозрачность окна", 0, 0.6, Flags.Menu.Transparency, 2, function(v)
-    Flags.Menu.Transparency = v
-    Main.BackgroundTransparency = v
+    Flags.Menu.Transparency = v; Main.BackgroundTransparency = v
 end)
 addTextBox(tabCfg, "Клавиша меню", Flags.Menu.Key, function(txt) Flags.Menu.Key = txt end)
+addButton(tabCfg, "Пересоздать ESP", function()
+    for p, c in pairs(espCache) do
+        if c.d then destroyDrawingESP(c.d) end
+        if c.bb then c.bb:Destroy() end
+        espCache[p] = nil
+    end
+end)
 
 addSection(tabCfg, "Конфиг")
 addButton(tabCfg, "Сохранить настройки", function()
@@ -1019,60 +1311,121 @@ addButton(tabCfg, "Загрузить настройки", function()
     local d = dec(data)
     for k, v in pairs(d) do if Flags[k] then Flags[k] = v end end
     applySky(); applyParticles(); setFPSBoost(Flags.Visual.FPSBoost)
+    if Flags.Skin.Enabled then applySkinAll() end
 end)
 
 --=====================================================================
 --  ВОДЯНОЙ ЗНАК
 --=====================================================================
-local wm = new("Frame", { Parent = ScreenGui, Position = UDim2.new(0,14,1,-44), Size = UDim2.new(0,300,0,30),
+local wm = new("Frame", { Parent = ScreenGui, Position = UDim2.new(0,14,1,-44), Size = UDim2.new(0,320,0,30),
     BackgroundColor3 = Theme.Bg, BorderSizePixel = 0 })
 corner(wm,7); stroke(wm, Theme.Stroke, 1, 0.4)
-local wmText = new("TextLabel", { Parent = wm, BackgroundTransparency = 1, Size = UDim2.new(1,0,1,0),
-    Text = "", Font = Enum.Font.GothamMedium, TextSize = 12, TextColor3 = Theme.Text })
-local accentLabel = new("TextLabel", { Parent = wm, BackgroundTransparency = 1, Position = UDim2.new(0,10,0,0),
+new("TextLabel", { Parent = wm, BackgroundTransparency = 1, Position = UDim2.new(0,10,0,0),
     Size = UDim2.new(0,80,1,0), Text = "VENICE", Font = Enum.Font.GothamBold, TextSize = 12,
     TextColor3 = Theme.Accent, TextXAlignment = Enum.TextXAlignment.Left })
-wmText.Position = UDim2.new(0,66,0,0); wmText.Size = UDim2.new(1,-76,1,0)
-wmText.TextXAlignment = Enum.TextXAlignment.Left
+local wmText = new("TextLabel", { Parent = wm, BackgroundTransparency = 1, Position = UDim2.new(0,66,0,0),
+    Size = UDim2.new(1,-76,1,0), Text = "", Font = Enum.Font.GothamMedium, TextSize = 12,
+    TextColor3 = Theme.Text, TextXAlignment = Enum.TextXAlignment.Left })
 
 --=====================================================================
 --  ГЛАВНЫЙ ЦИКЛ
 --=====================================================================
-local frames, lastT, fps = 0, os.clock(), 0
+local frames, lastT = 0, os.clock()
+local hue = 0
 
-RunService.RenderStepped:Connect(function()
-    if hasDrawing then updateESP() end
+RunService.RenderStepped:Connect(function(dt)
+    updateESP()
 
     if PartHost and PartHost.Parent then
         local cam = WS.CurrentCamera
         if cam then PartHost.CFrame = CFrame.new(cam.CFrame.Position) end
     end
 
+    --  RGB перелив оружия
+    if Flags.Skin.Enabled and Flags.Skin.Rainbow then
+        hue = (hue + dt * 0.35) % 1
+        local col = Color3.fromHSV(hue, 0.85, 1)
+        for _, t in ipairs(allTools()) do
+            for _, d in ipairs(t:GetDescendants()) do
+                if d:IsA("BasePart") then d.Color = col end
+            end
+        end
+    end
+
     frames = frames + 1
     local now = os.clock()
     if now - lastT >= 0.5 then
-        fps = math.floor(frames / (now - lastT))
+        local fps = math.floor(frames / (now - lastT))
         frames, lastT = 0, now
         wmText.Text = string.format("FPS: %d   •   Игроков: %d   •   ESP: %s",
             fps, #Players:GetPlayers(), Flags.ESP.Enabled and "ON" or "OFF")
     end
 end)
 
+--  AUTO BUNNYHOP (RenderStepped — точнее по кадрам)
+RunService.RenderStepped:Connect(function()
+    if not Flags.Bhop.Enabled then return end
+    local char = LP.Character
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    if not hum or hum.Health <= 0 then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+
+    local grounded = hum.FloorMaterial ~= Enum.Material.Air
+        or hum:GetState() == Enum.HumanoidStateType.Landed
+
+    if grounded then
+        if Flags.Bhop.Always or UIS:IsKeyDown(Enum.KeyCode.Space) then
+            local moving = true
+            if Flags.Bhop.RequireMove then
+                local v = hrp.AssemblyLinearVelocity
+                moving = Vector3.new(v.X, 0, v.Z).Magnitude > 2
+            end
+            if moving then
+                hum.Jump = true
+                pcall(function() hum:ChangeState(Enum.HumanoidStateType.Jumping) end)
+            end
+        end
+    elseif Flags.Bhop.AutoStrafe then
+        local v = hrp.AssemblyLinearVelocity
+        local flat = Vector3.new(v.X, 0, v.Z)
+        if flat.Magnitude > 4 then
+            hum.AutoRotate = false
+            local yaw = math.atan2(-flat.X, -flat.Z)
+            hrp.CFrame = CFrame.new(hrp.Position)
+                * CFrame.Angles(0, yaw + math.rad(Flags.Bhop.StrafeAngle), 0)
+        end
+    else
+        hum.AutoRotate = true
+    end
+end)
+
 task.spawn(function()
-    while true do
+    while ScreenGui.Parent do
         task.wait(0.5)
-        if Pages["Игроки"] and Pages["Игроки"].Visible then refreshList() end
+        if Pages["Игроки"].Visible then refreshList() end
     end
 end)
 
 --=====================================================================
---  КНОПКИ / ХОТКЕИ
+--  СВОРАЧИВАНИЕ / КНОПКИ / ХОТКЕИ
 --=====================================================================
-local function setMenuVisible(v) Right.Visible = v end
-minBtn.MouseButton1Click:Connect(function() Right.Visible = not Right.Visible end)
+local minimized = false
+minBtn.MouseButton1Click:Connect(function()
+    minimized = not minimized
+    Sidebar.Visible = not minimized
+    Content.Visible = not minimized
+    Sep.Visible = not minimized
+    Tween:Create(Main, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+        { Size = minimized and UDim2.new(0,WIN_W,0,38) or UDim2.new(0,WIN_W,0,WIN_H) }):Play()
+end)
+
 closeBtn.MouseButton1Click:Connect(function()
     ScreenGui:Destroy()
-    for _, c in pairs(espCache) do destroyESP(c) end
+    for _, c in pairs(espCache) do
+        if c.d then destroyDrawingESP(c.d) end
+        if c.bb then c.bb:Destroy() end
+    end
     if PartHost then PartHost:Destroy() end
     pcall(function() RunService:UnbindFromRenderStep("VeniceFOV") end)
 end)
@@ -1092,12 +1445,11 @@ end)
 Pages["ESP"].Visible = true
 TabBtns["ESP"].BackgroundColor3 = Theme.Card
 TabBtns["ESP"].TextColor3 = Theme.Text
-local firstInd = TabBtns["ESP"]:FindFirstChildOfClass("Frame")
-if firstInd then firstInd.Visible = true end
+local fi = TabBtns["ESP"]:FindFirstChildOfClass("Frame")
+if fi then fi.Visible = true end
 
 applySky()
-if not hasDrawing then
-    warn("[Venice] Drawing API недоступен — ESP будет отключён.")
+if not drawingOK then
+    print("[Venice] Drawing API недоступен — ESP работает через Billboard (сквозь стены сохраняется).")
 end
-
-print("[Venice] Blox Strike script loaded. Меню: RightShift / Insert")
+print("[Venice] Blox Strike v2 loaded. Меню: RightShift / Insert")
