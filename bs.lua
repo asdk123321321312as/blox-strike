@@ -1,6 +1,8 @@
 --=====================================================================
---  BLOX STRIKE  •  VENICE FULL SCRIPT v3.1  (FIXED)
+--  BLOX STRIKE • VENICE v3.2  (HARDENED)
 --=====================================================================
+
+local function MAIN()
 
 local Players    = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -9,12 +11,22 @@ local Lighting   = game:GetService("Lighting")
 local Tween      = game:GetService("TweenService")
 local WS         = game:GetService("Workspace")
 local RS         = game:GetService("ReplicatedStorage")
-local Http       = game:GetService("HttpService")
 
 local LP = Players.LocalPlayer
 
+local function trace(e)
+    local tb = ""
+    if debug and debug.traceback then tb = "\n" .. debug.traceback("", 2) end
+    return tostring(e) .. tb
+end
+local function safe(name, f)
+    local ok, err = xpcall(f, trace)
+    if not ok then warn("[Venice][" .. name .. "] " .. tostring(err)) end
+    return ok
+end
+
 local GUI_PARENT = (gethui and gethui()) or game:GetService("CoreGui")
-for _, p in ipairs({GUI_PARENT, game:GetService("CoreGui")}) do
+for _, p in ipairs({ GUI_PARENT, game:GetService("CoreGui") }) do
     local o = p:FindFirstChild("VeniceBloxStrike")
     if o then o:Destroy() end
 end
@@ -24,33 +36,27 @@ end
 --=====================================================================
 local Flags = {
     Menu = { Key = "RightShift", Accent = Color3.fromRGB(0,170,255), Transparency = 0.06 },
-
     ESP = {
         Mode = "Billboard", Enabled = true, Box = true, BoxFill = false, Name = true,
         Health = true, Distance = true, Weapon = true, Tracer = false, Chams = true,
         TeamColor = true, TeamCheck = false, MaxDistance = 2500,
         Color = Color3.fromRGB(0,170,255), ShowSelf = false,
     },
-
     Visual = { FOVEnabled = false, FOV = 100, FPSBoost = false },
-
     Sky = {
         ClockTime = 14, Brightness = 2, FogEnd = 3000, FogStart = 0,
         FogColor = Color3.fromRGB(170,200,235), Ambient = Color3.fromRGB(90,95,105),
         Outdoor = Color3.fromRGB(140,150,165), Stars = 3000,
         Atmosphere = true, Density = 0.3, Haze = 0, Celestial = true,
     },
-
     Particles = {
         Enabled = false, Rate = 40, Speed = 4, Lifetime = 3, Size = 0.6,
         Spread = 180, RotSpeed = 1, AccelY = 0, Light = 0.4,
         Color = Color3.fromRGB(255,255,255),
         Texture = "rbxasset://textures/particles/sparkles_main.dds",
     },
-
     Bhop = { Enabled = false, Always = true, RequireMove = true, AutoStrafe = false,
              StrafeAngle = 35, JumpPower = 55 },
-
     Skin = {
         Enabled = false, Target = "Weapon", AutoApply = true, Rainbow = false,
         Search = "", Material = "Изначально", Color = Color3.fromRGB(255,255,255), Reflectance = 0,
@@ -63,7 +69,7 @@ local Flags = {
 }
 
 --=====================================================================
---  THEME + ХЕЛПЕРЫ
+--  ТЕМА + ХЕЛПЕРЫ
 --=====================================================================
 local Theme = {
     Bg = Color3.fromRGB(9,9,11), Panel = Color3.fromRGB(15,15,19),
@@ -71,11 +77,6 @@ local Theme = {
     Stroke = Color3.fromRGB(40,40,50), Text = Color3.fromRGB(232,232,240),
     Sub = Color3.fromRGB(135,135,152), Accent = Flags.Menu.Accent,
 }
-
-local function safe(name, f)
-    local ok, err = pcall(f)
-    if not ok then warn("[Venice][" .. name .. "] " .. tostring(err)) end
-end
 
 local function new(class, props)
     local o = Instance.new(class)
@@ -351,6 +352,7 @@ corner(pickerPreview,7); stroke(pickerPreview, Theme.Stroke, 1, 0)
 local pickerBody = new("Frame", { Parent = PickerFrame, Size = UDim2.new(1,0,0,0),
     AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1 })
 new("UIListLayout", { Parent = pickerBody, Padding = UDim.new(0,5), SortOrder = Enum.SortOrder.LayoutOrder })
+
 local function pickerApply()
     if pickerUpdating then return end
     local c = Color3.fromRGB(pickerState.R, pickerState.G, pickerState.B)
@@ -395,13 +397,13 @@ end
 --=====================================================================
 --  ВКЛАДКИ
 --=====================================================================
-local Pages, TabBtns, order = {}, {}, 0
+local Pages, TabBtns, tabOrder = {}, {}, 0
 local function createTab(name)
-    order = order + 1
+    tabOrder = tabOrder + 1
     local btn = new("TextButton", { Parent = Sidebar, Size = UDim2.new(1,0,0,32), BackgroundColor3 = Theme.Bg,
         BorderSizePixel = 0, Text = name, Font = Enum.Font.GothamMedium, TextSize = 13,
         TextColor3 = Theme.Sub, TextXAlignment = Enum.TextXAlignment.Left,
-        AutoButtonColor = false, LayoutOrder = order })
+        AutoButtonColor = false, LayoutOrder = tabOrder })
     corner(btn,7)
     new("UIPadding", { Parent = btn, PaddingLeft = UDim.new(0,14) })
     local ind = new("Frame", { Parent = btn, Size = UDim2.new(0,3,0,16), Position = UDim2.new(0,0,0.5,-8),
@@ -465,13 +467,15 @@ end
 --=====================================================================
 --  ESP
 --=====================================================================
-local drawingOK = (function()
-    if not Drawing then return false end
-    return pcall(function()
-        local d = Drawing.new("Square"); d.Visible = false
-        if d.Remove then d:Remove() elseif d.Destroy then d:Destroy() end
-    end)
-end)()
+local drawingOK = false
+do
+    if Drawing and Drawing.new then
+        drawingOK = pcall(function()
+            local d = Drawing.new("Square"); d.Visible = false
+            if d.Remove then d:Remove() elseif d.Destroy then d:Destroy() end
+        end)
+    end
+end
 
 local function removeD(d)
     if not d then return end
@@ -484,7 +488,7 @@ local espErr = ""
 
 local function newD(class, props)
     local ok, d = pcall(Drawing.new, class)
-    if not ok then return nil end
+    if not ok or not d then return nil end
     for k, v in pairs(props) do d[k] = v end
     return d
 end
@@ -877,13 +881,11 @@ local function restorePart(part)
     part.Color, part.Material, part.Reflectance = o.Color, o.Material, o.Reflectance
     skinOriginals[part] = nil
 end
-
 local function applyOne(d, tex)
     if d:IsA("MeshPart") then
         saveOriginal(d)
         if tex ~= "" then d.TextureID = tex end
-        d.Color = Flags.Skin.Color
-        d.Reflectance = Flags.Skin.Reflectance
+        d.Color = Flags.Skin.Color; d.Reflectance = Flags.Skin.Reflectance
         if Flags.Skin.Material ~= "Изначально" then
             local m = Enum.Material[Flags.Skin.Material]; if m then d.Material = m end
         end
@@ -893,31 +895,26 @@ local function applyOne(d, tex)
         if tex ~= "" then d.Texture = tex end
     elseif d:IsA("BasePart") then
         saveOriginal(d)
-        d.Color = Flags.Skin.Color
-        d.Reflectance = Flags.Skin.Reflectance
+        d.Color = Flags.Skin.Color; d.Reflectance = Flags.Skin.Reflectance
         if Flags.Skin.Material ~= "Изначально" then
             local m = Enum.Material[Flags.Skin.Material]; if m then d.Material = m end
         end
     end
 end
-
 local function applySkinTo(inst, slot)
     if not inst then return end
     local tex = (slot and slot.TextureId) or ""
     if inst:IsA("BasePart") then applyOne(inst, tex) end
     for _, d in ipairs(inst:GetDescendants()) do applyOne(d, tex) end
 end
-
 local function toolKind(tool)
     if matchAny(tool.Name, GLOVE_WORDS) then return "Gloves" end
     if matchAny(tool.Name, KNIFE_WORDS) then return "Knife" end
     return "Weapon"
 end
-
 local function equippedTool()
     return LP.Character and LP.Character:FindFirstChildOfClass("Tool")
 end
-
 local function gloveInstances()
     local out = {}
     local function scan(root)
@@ -930,14 +927,12 @@ local function gloveInstances()
     scan(WS.CurrentCamera)
     return out
 end
-
 local function applyEquipped()
     if not Flags.Skin.Enabled then return end
     local tool = equippedTool()
     if tool then applySkinTo(tool, Flags.Skin.Slots[toolKind(tool)]) end
     for _, g in ipairs(gloveInstances()) do applySkinTo(g, Flags.Skin.Slots.Gloves) end
 end
-
 local function hookTool(tool)
     if not tool:IsA("Tool") then return end
     tool.Equipped:Connect(function()
@@ -994,7 +989,12 @@ local function scanCatalog()
 end
 
 --=====================================================================
---  НАПОЛНЕНИЕ ВКЛАДОК  (каждая вкладка в своём pcall)
+--  FORWARD DECLS (чтобы не было вызовов nil)
+--=====================================================================
+local refreshList, fillCatalog, updateTargetLabel, diagLabel
+
+--=====================================================================
+--  НАПОЛНЕНИЕ ВКЛАДОК
 --=====================================================================
 safe("ESP", function()
     addSection(tabESP, "Движок отрисовки")
@@ -1022,7 +1022,7 @@ end)
 safe("Игроки", function()
     addSection(tabList, "Данные игроков")
     local listScroll = addScroll(tabList, 340)
-    _G.__refreshList = function()
+    refreshList = function()
         for _, c in ipairs(listScroll:GetChildren()) do if c:IsA("Frame") then c:Destroy() end end
         local cam = WS.CurrentCamera
         local sorted = {}
@@ -1124,23 +1124,28 @@ safe("Скины", function()
 
     addSection(tabSkin, "Цель скина")
     local targetLabel = addLabel(tabSkin, "Цель: Оружие   |   Скин: —")
-    local function updateTargetLabel()
+    updateTargetLabel = function()
         local s = Flags.Skin.Slots[Flags.Skin.Target]
         local rus = (Flags.Skin.Target == "Knife" and "Ножи")
                  or (Flags.Skin.Target == "Gloves" and "Перчатки") or "Оружие"
-        targetLabel.Text = "Цель: " .. rus .. "   |   Скин: " .. ((s and s.Name ~= "" and s.Name) or "—")
+        if targetLabel then
+            targetLabel.Text = "Цель: " .. rus .. "   |   Скин: " .. ((s and s.Name ~= "" and s.Name) or "—")
+        end
     end
     addDropdown(tabSkin, "Куда применять", { "Оружие", "Ножи", "Перчатки" }, "Оружие", function(v)
         Flags.Skin.Target = (v == "Ножи") and "Knife" or (v == "Перчатки") and "Gloves" or "Weapon"
-        updateTargetLabel()
+        if updateTargetLabel then updateTargetLabel() end
     end)
 
     addSection(tabSkin, "Каталог скинов из игры")
     addLabel(tabSkin, "Жми «Сканировать» — вытащу текстуры оружия, ножей и перчаток из игры.")
     local catalogScroll = addScroll(tabSkin, 250)
-    addTextBox(tabSkin, "Поиск", "", function(txt) Flags.Skin.Search = string.lower(txt); _G.__fillCatalog() end)
+    addTextBox(tabSkin, "Поиск", "", function(txt)
+        Flags.Skin.Search = string.lower(txt)
+        if fillCatalog then fillCatalog() end
+    end)
 
-    local function fillCatalog()
+    fillCatalog = function()
         for _, c in ipairs(catalogScroll:GetChildren()) do if c:IsA("TextButton") then c:Destroy() end end
         local filter = Flags.Skin.Search or ""
         local shown = 0
@@ -1169,7 +1174,7 @@ safe("Скины", function()
                     slot.TextureId = item.id
                     slot.Name = item.name
                     Flags.Skin.Enabled = true
-                    updateTargetLabel()
+                    if updateTargetLabel then updateTargetLabel() end
                     applyEquipped()
                     for _, c in ipairs(catalogScroll:GetChildren()) do
                         if c:IsA("TextButton") then c.BackgroundColor3 = Theme.Bg; c.TextColor3 = Theme.Sub end
@@ -1185,8 +1190,6 @@ safe("Скины", function()
             new("UIPadding", { Parent = l, PaddingLeft = UDim.new(0,8) })
         end
     end
-    _G.__fillCatalog = fillCatalog
-    _G.__updateTargetLabel = updateTargetLabel
 
     addButton(tabSkin, "Сканировать скины в игре", function()
         task.spawn(function()
@@ -1194,7 +1197,7 @@ safe("Скины", function()
             print("[Venice] Найдено скинов: " .. #catalog)
         end)
     end)
-    addButton(tabSkin, "Обновить список", fillCatalog)
+    addButton(tabSkin, "Обновить список", function() fillCatalog() end)
 
     addSection(tabSkin, "Ручная правка")
     addButton(tabSkin, "Применить сейчас", function() Flags.Skin.Enabled = true; applyEquipped() end)
@@ -1218,7 +1221,8 @@ safe("Скины", function()
     addTextBox(tabSkin, "Свой Texture ID", "", function(txt)
         local slot = Flags.Skin.Slots[Flags.Skin.Target]
         slot.TextureId = txt; slot.Name = "custom"
-        _G.__updateTargetLabel(); applyEquipped()
+        if updateTargetLabel then updateTargetLabel() end
+        applyEquipped()
     end)
 end)
 
@@ -1236,7 +1240,6 @@ safe("Bhop", function()
     end)
 end)
 
-local diagLabel
 safe("Настройки", function()
     addSection(tabCfg, "Интерфейс")
     addColorPicker(tabCfg, "Акцентный цвет", Theme.Accent, function(c)
@@ -1264,7 +1267,7 @@ end)
 --=====================================================================
 --  ВОДЯНОЙ ЗНАК
 --=====================================================================
-local wm = new("Frame", { Parent = ScreenGui, Position = UDim2.new(0,14,1,-44), Size = UDim2.new(0,420,0,30),
+local wm = new("Frame", { Parent = ScreenGui, Position = UDim2.new(0,14,1,-44), Size = UDim2.new(0,440,0,30),
     BackgroundColor3 = Theme.Bg, BorderSizePixel = 0 })
 corner(wm,7); stroke(wm, Theme.Stroke, 1, 0.4)
 new("TextLabel", { Parent = wm, BackgroundTransparency = 1, Position = UDim2.new(0,10,0,0),
@@ -1351,7 +1354,7 @@ end)
 task.spawn(function()
     while ScreenGui.Parent do
         task.wait(0.5)
-        if Pages["Игроки"].Visible and _G.__refreshList then pcall(_G.__refreshList) end
+        if Pages["Игроки"].Visible and refreshList then pcall(refreshList) end
     end
 end)
 
@@ -1405,7 +1408,22 @@ do
     if fi then fi.Visible = true end
 end
 
-if _G.__updateTargetLabel then pcall(_G.__updateTargetLabel) end
+if updateTargetLabel then pcall(updateTargetLabel) end
 applySky()
-task.spawn(function() pcall(scanCatalog); if _G.__fillCatalog then pcall(_G.__fillCatalog) end end)
-print("[Venice] Blox Strike v3.1 loaded. Меню: RightShift / Insert")
+task.spawn(function() pcall(scanCatalog); if fillCatalog then pcall(fillCatalog) end end)
+
+end -- MAIN
+
+--=====================================================================
+--  ЗАПУСК С ТРАССИРОВКОЙ
+--=====================================================================
+local ok, err = xpcall(MAIN, function(e)
+    local tb = ""
+    if debug and debug.traceback then tb = "\n" .. debug.traceback("", 2) end
+    return tostring(e) .. tb
+end)
+if ok then
+    print("[Venice] Blox Strike v3.2 загружен. Меню: RightShift / Insert")
+else
+    warn("[Venice] ОШИБКА ЗАГРУЗКИ: " .. tostring(err))
+end
