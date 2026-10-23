@@ -1,23 +1,20 @@
 --[[
 ================================================================================
         ███████╗██╗     ███████╗███████╗██████╗     SleepScript
-        ██╔════╝██║     ██╔════╝██╔════╝██╔══██╗    BloxStrike Edition  v4.0
+        ██╔════╝██║     ██╔════╝██╔════╝██╔══██╗    BloxStrike Edition  v5.0
         ███████╗██║     █████╗  █████╗  ██████╔╝
         ╚════██║██║     ██╔══╝  ██╔══╝  ██╔═══╝
         ███████║███████╗███████╗███████╗██║
         ╚══════╝╚══════╝╚══════╝╚══════╝╚═╝
 ================================================================================
-  v4.0 FIXES
-   - ESP rebuilt: 2D GUI frames = PRIMARY (renders on any executor, no Drawing,
-     no adornment, camera-swap proof). Optional Drawing boxes, 3D adornment,
-     chams, nametags. Auto-rebuild when the game swaps CurrentCamera.
-   - SKINCHANGER: fixed real scoping bug (COLOR_LOOKUP global vs local),
-     default skins now VISIBLE (★ Gold), aggressive viewmodel scan, live part
-     counter, colour/material always applied (never a silent no-op).
-   - CAMERA 180 FLIP: all per-frame writes moved off RenderStepped, FOV now
-     applied in Safe mode (throttled Heartbeat) so it can't fight the game's
-     shoot/recoil camera. Modes: Safe / Instant / Off.
-   - Executor hardened (Real / Delta / Xeno safe): everything optional pcall'd.
+  v5.0 FIXES
+   - ESP: box now built from FILTERED character parts (skips parts the game
+     stores far away / in the sky). Width uses camera right vector. Boxes land
+     exactly on enemies. Team check ON by default = shows enemies only.
+   - SKINCHANGER: simplified. Pick weapon/knife -> pick skin -> APPLY button.
+     Skin is ASSIGNED to that weapon and stays. Nothing else.
+   - STRAFE: rewritten. Speed builds while strafing mid-air, WalkSpeed follows
+     your speed so the controller can't brake you, speed is preserved on landing.
 ================================================================================
   KEYBINDS:  [RightShift] Menu   [F4] Overlay
 ================================================================================
@@ -47,7 +44,7 @@ local Camera            = Workspace.CurrentCamera
 --=====================================================================
 -- 2. CORE
 --=====================================================================
-local SleepScript = { Version = "4.0.0", Connections = {}, Objects = {}, Flags = {}, Unloaded = false }
+local SleepScript = { Version = "5.0.0", Connections = {}, Objects = {}, Flags = {}, Unloaded = false }
 _G.SleepScript = SleepScript
 
 local function Conn(sig, fn)
@@ -55,14 +52,12 @@ local function Conn(sig, fn)
 	table.insert(SleepScript.Connections, c)
 	return c
 end
-
 local function New(class, props, parent)
 	local i = Instance.new(class)
 	if props then for k, v in next, props do pcall(function() i[k] = v end) end end
 	if parent then i.Parent = parent end
 	return i
 end
-
 local function Corner(p, r) return New("UICorner", { CornerRadius = UDim.new(0, r or 8) }, p) end
 local function Stroke(p, c, t, tr)
 	return New("UIStroke", {
@@ -220,7 +215,6 @@ function Lib:Window(cfg)
 	}, holder)
 	Corner(root, 14)
 	Stroke(root, Theme.Stroke, 1, 0.5)
-
 	local topbar = New("Frame", {
 		Size = UDim2.new(1, 0, 0, 44), BackgroundColor3 = Theme.Bg2, BorderSizePixel = 0, ZIndex = 2,
 	}, root)
@@ -311,7 +305,6 @@ function Lib:Window(cfg)
 	}, sidebar)
 	Corner(indicator, 3)
 	RegisterAccent(indicator, "BackgroundColor3")
-
 	local contentHolder = New("Frame", {
 		Size = UDim2.new(1, -174, 1, -58), Position = UDim2.new(0, 162, 0, 50),
 		BackgroundTransparency = 1, ZIndex = 2,
@@ -414,7 +407,6 @@ local function Section(parent, text)
 	}, f)
 	return f
 end
-
 local function Label(parent, text)
 	return New("TextLabel", {
 		Size = UDim2.new(1, 0, 0, 0), BackgroundTransparency = 1, Font = Enum.Font.Gotham,
@@ -422,7 +414,6 @@ local function Label(parent, text)
 		TextXAlignment = Enum.TextXAlignment.Left, AutomaticSize = Enum.AutomaticSize.Y,
 	}, parent)
 end
-
 local function Toggle(parent, o)
 	o = o or {}
 	local f = New("Frame", {
@@ -464,7 +455,6 @@ local function Toggle(parent, o)
 	if state then obj:Set(true, true) end
 	return obj
 end
-
 local function Slider(parent, o)
 	o = o or {}
 	local f = New("Frame", {
@@ -532,7 +522,6 @@ local function Slider(parent, o)
 	if o.Callback then task.spawn(o.Callback, value) end
 	return obj
 end
-
 local function Button(parent, o)
 	o = o or {}
 	local b = New("TextButton", {
@@ -550,7 +539,6 @@ local function Button(parent, o)
 	b.MouseButton1Click:Connect(function() if o.Callback then task.spawn(o.Callback) end end)
 	return b
 end
-
 local function Keybind(parent, o)
 	o = o or {}
 	local f = New("Frame", {
@@ -593,7 +581,6 @@ local function Keybind(parent, o)
 	if o.Callback then task.spawn(o.Callback, key) end
 	return { Key = key }
 end
-
 local function Dropdown(parent, o)
 	o = o or {}
 	local f = New("Frame", {
@@ -641,7 +628,6 @@ local function Dropdown(parent, o)
 	}, list)
 	Corner(search, 5)
 	Pad(search, 0, 4, 0, 4)
-
 	local obj = { Options = o.Options or {}, Value = o.Default or (o.Options and o.Options[1]) }
 	local open = false
 	local function build(filter)
@@ -731,11 +717,6 @@ local GLOVES = {
 	"Bloodhound Gloves", "Broken Fang Gloves", "Hydra Gloves", "Operator Gloves",
 	"Gloves", "Default Gloves",
 }
-local MATERIALS = {
-	"Keep", "Neon", "Metal", "Glass", "Ice", "Marble", "Granite", "Sand", "Foil",
-	"Fabric", "SmoothPlastic", "Plastic", "DiamondPlate", "CorrodedMetal", "Slate",
-	"Concrete", "Wood", "WoodPlanks", "Cobblestone", "Basalt", "Limestone",
-}
 local COLOR_LOOKUP = {
 	["Gold"] = Color3.fromRGB(255, 202, 84), ["Silver"] = Color3.fromRGB(226, 230, 240),
 	["Carbon"] = Color3.fromRGB(28, 28, 32), ["Crimson"] = Color3.fromRGB(185, 28, 42),
@@ -758,7 +739,6 @@ local BUILTIN_SKINS = {
 	["★ Frost"]    = { Color = Color3.fromRGB(180, 230, 255), Material = "Ice", Reflectance = 0.3 },
 	["★ Sand"]     = { Color = Color3.fromRGB(214, 188, 140), Material = "Sand" },
 	["★ White"]    = { Color = Color3.fromRGB(245, 245, 250), Material = "SmoothPlastic" },
-	["★ Rainbow"]  = { Rainbow = true },
 }
 local SKY_PRESETS = {
 	["Game Default"] = "default",
@@ -782,26 +762,22 @@ local SKY_PRESETS = {
 }
 
 --=====================================================================
--- 6. CAMERA WATCH  (critical: game swaps the camera)
+-- 6. CAMERA WATCH
 --=====================================================================
 local CameraChanged = {}
 local function OnCameraChanged(fn) table.insert(CameraChanged, fn) end
-
 Conn(Workspace:GetPropertyChangedSignal("CurrentCamera"), function()
 	Camera = Workspace.CurrentCamera
 	task.defer(function()
-		for _, fn in ipairs(CameraChanged) do
-			pcall(fn)
-		end
+		for _, fn in ipairs(CameraChanged) do pcall(fn) end
 	end)
 end)
 
 --=====================================================================
--- 7. FOV  (Safe mode = throttled Heartbeat, cannot fight the game camera)
+-- 7. FOV
 --=====================================================================
 local FOV = { Enabled = false, Value = 100, Original = nil, Mode = "Safe" }
 SleepScript.FOV = FOV
-
 local fovTimer = 0
 Conn(RunService.Heartbeat, function(dt)
 	if FOV.Mode ~= "Safe" or not FOV.Enabled then return end
@@ -811,27 +787,19 @@ Conn(RunService.Heartbeat, function(dt)
 	local cam = Workspace.CurrentCamera
 	if cam and math.abs(cam.FieldOfView - FOV.Value) > 0.5 then cam.FieldOfView = FOV.Value end
 end)
-
 RunService:BindToRenderStep("SleepFOV", Enum.RenderPriority.Camera.Value + 1, function()
 	if FOV.Mode ~= "Instant" or not FOV.Enabled then return end
 	local cam = Workspace.CurrentCamera
 	if cam and math.abs(cam.FieldOfView - FOV.Value) > 0.5 then cam.FieldOfView = FOV.Value end
 end)
-
 function FOV:Reset()
 	local cam = Workspace.CurrentCamera
 	if cam and FOV.Original then cam.FieldOfView = FOV.Original end
 end
 
 --=====================================================================
--- 8. ESP  (2D GUI primary — renders on any executor)
+-- 8. ESP  (filtered bounds — fixes boxes in the sky)
 --=====================================================================
-local hasDrawing = false
-do
-	local ok = pcall(function() local s = Drawing.new("Square") s:Remove() end)
-	hasDrawing = ok
-end
-
 local EspGui = New("ScreenGui", {
 	Name = "SleepESP", ResetOnSpawn = false, IgnoreGuiInset = true,
 	ZIndexBehavior = Enum.ZIndexBehavior.Sibling, DisplayOrder = 500,
@@ -840,11 +808,11 @@ SleepScript.Objects[#SleepScript.Objects + 1] = EspGui
 
 local ESP = {
 	Enabled = false,
-	Method = "2D GUI",           -- 2D GUI / Drawing / 3D Adornment / Off
-	Boxes = true, Chams = false, Names = true, Health = true, Distance = true, Weapon = true,
-	TeamCheck = false, UseTeamColor = true, MaxDistance = 2500,
+	Method = "2D GUI", Boxes = true, Chams = false,
+	Names = true, Health = true, Distance = true, Weapon = true,
+	TeamCheck = true, UseTeamColor = true, MaxDistance = 2500,
 	Color = Color3.fromRGB(255, 255, 255),
-	FillAlpha = 0.12, Thickness = 1.5,
+	FillAlpha = 0.10, Thickness = 1.5,
 	Objects = {}, Debug = "0",
 }
 SleepScript.ESP = ESP
@@ -885,15 +853,47 @@ local function espColorFor(plr)
 	return ESP.Color
 end
 
+--// FILTERED bounds: ignores parts stored far from the root (sky storage)
+local function characterBounds(char, root)
+	local minY, maxY, maxR
+	local rx, ry, rz = root.Position.X, root.Position.Y, root.Position.Z
+	for _, d in ipairs(char:GetDescendants()) do
+		if d:IsA("BasePart") then
+			local dx, dy, dz = d.Position.X - rx, d.Position.Y - ry, d.Position.Z - rz
+			local flatSq = dx * dx + dz * dz
+			if math.abs(dy) < 12 and flatSq < 144 then
+				local s = d.Size
+				local y1, y2 = d.Position.Y - s.Y / 2, d.Position.Y + s.Y / 2
+				minY = minY and math.min(minY, y1) or y1
+				maxY = maxY and math.max(maxY, y2) or y2
+				local r = math.sqrt(flatSq) + math.max(s.X, s.Z) / 2
+				maxR = maxR and math.max(maxR, r) or r
+			end
+		end
+	end
+	if not minY or (maxY - minY) > 25 then
+		minY = ry - 3
+		maxY = ry + 3
+		maxR = 2.2
+	end
+	return minY, maxY, math.max(maxR or 2.2, 1.5)
+end
+
+local boundsCache = {}
+local function getBounds(char, root)
+	local c = boundsCache[char]
+	if c and os.clock() - c.t < 0.25 then return c.minY, c.maxY, c.r end
+	local minY, maxY, r = characterBounds(char, root)
+	boundsCache[char] = { minY = minY, maxY = maxY, r = r, t = os.clock() }
+	return minY, maxY, r
+end
+
 local function destroyESP(plr)
 	local d = ESP.Objects[plr]
 	if not d then return end
 	if d.Gui and d.Gui.Parent then d.Gui:Destroy() end
 	if d.Box and d.Box.Parent then d.Box:Destroy() end
 	if d.Highlight and d.Highlight.Parent then d.Highlight:Destroy() end
-	if d.Billboard and d.Billboard.Parent then d.Billboard:Destroy() end
-	if d.DrawBox then pcall(function() d.DrawBox:Remove() end) end
-	if d.DrawFill then pcall(function() d.DrawFill:Remove() end) end
 	ESP.Objects[plr] = nil
 end
 
@@ -906,7 +906,6 @@ local function createESP(plr)
 	local col = espColorFor(plr)
 	local d = { Player = plr, Character = char, Anchor = hrp, Humanoid = hum }
 
-	--// 2D GUI
 	local gui = New("Frame", {
 		Name = "Box_" .. plr.Name, Size = UDim2.fromOffset(60, 100),
 		Position = UDim2.fromOffset(0, 0), BackgroundColor3 = col,
@@ -919,13 +918,13 @@ local function createESP(plr)
 	}, gui)
 	d.GuiStroke = New("UIStroke", { Thickness = ESP.Thickness, Color = col, Transparency = 0 }, gui)
 	d.GuiName = New("TextLabel", {
-		Size = UDim2.new(1, 60, 0, 15), Position = UDim2.new(0.5, 0, 0, -16),
+		Size = UDim2.new(1, 80, 0, 15), Position = UDim2.new(0.5, 0, 0, -16),
 		AnchorPoint = Vector2.new(0.5, 1), BackgroundTransparency = 1,
 		Font = Enum.Font.GothamBold, TextSize = 13, Text = plr.Name, TextColor3 = col,
 		TextStrokeTransparency = 0.35, TextStrokeColor3 = Color3.new(0, 0, 0), ZIndex = 2,
 	}, gui)
 	d.GuiInfo = New("TextLabel", {
-		Size = UDim2.new(1, 60, 0, 14), Position = UDim2.new(0.5, 0, 1, 1),
+		Size = UDim2.new(1, 80, 0, 14), Position = UDim2.new(0.5, 0, 1, 1),
 		AnchorPoint = Vector2.new(0.5, 0), BackgroundTransparency = 1,
 		Font = Enum.Font.Gotham, TextSize = 11, Text = "", TextColor3 = Theme.Sub,
 		TextStrokeTransparency = 0.4, TextStrokeColor3 = Color3.new(0, 0, 0), ZIndex = 2,
@@ -939,44 +938,16 @@ local function createESP(plr)
 	d.GuiHealth = New("Frame", { Size = UDim2.new(1, 0, 1, 0), BackgroundColor3 = Theme.Good, BorderSizePixel = 0 }, hb)
 	Corner(d.GuiHealth, 2)
 
-	--// chams
 	d.Highlight = New("Highlight", {
 		Name = "SleepChams", Adornee = char,
 		DepthMode = Enum.HighlightDepthMode.AlwaysOnTop,
 		FillTransparency = 1, OutlineTransparency = 1,
 		FillColor = col, OutlineColor = col,
 	}, char)
-
-	--// nametag (world)
-	local bb = New("BillboardGui", {
-		Name = "SleepTag", Adornee = hrp, Size = UDim2.fromOffset(200, 34),
-		StudsOffsetWorldSpace = Vector3.new(0, 2.6, 0), AlwaysOnTop = true,
-		LightInfluence = 0, MaxDistance = math.huge, Enabled = false,
-	}, hrp)
-	d.Billboard = bb
-	d.BbName = New("TextLabel", {
-		Size = UDim2.new(1, 0, 0, 16), BackgroundTransparency = 1, Font = Enum.Font.GothamBold,
-		TextSize = 13, Text = plr.Name, TextColor3 = col, TextStrokeTransparency = 0.4,
-		TextStrokeColor3 = Color3.new(0, 0, 0),
-	}, bb)
-
-	--// 3D adornment
 	d.Box = New("BoxHandleAdornment", {
 		Name = "SleepAdorn", Adornee = hrp, AlwaysOnTop = true,
 		Size = Vector3.new(4, 6, 4), Color3 = col, Transparency = 0.4, Visible = false,
 	}, Camera)
-
-	--// Drawing
-	if hasDrawing then
-		d.DrawBox = Drawing.new("Square")
-		d.DrawBox.Thickness = ESP.Thickness
-		d.DrawBox.Filled = false
-		d.DrawBox.Visible = false
-		d.DrawFill = Drawing.new("Square")
-		d.DrawFill.Filled = true
-		d.DrawFill.Transparency = ESP.FillAlpha
-		d.DrawFill.Visible = false
-	end
 
 	ESP.Objects[plr] = d
 	return true
@@ -986,7 +957,7 @@ local function refreshESP()
 	for plr, d in pairs(ESP.Objects) do
 		local dead = plr.Parent == nil or not d.Character or not d.Character.Parent
 			or not d.Humanoid or not d.Humanoid.Parent or d.Humanoid.Health <= 0
-			or not d.Gui or not d.Gui.Parent or not d.Box or not d.Box.Parent
+			or not d.Gui or not d.Gui.Parent
 		if dead then destroyESP(plr) end
 	end
 	if ESP.Enabled then
@@ -1000,21 +971,11 @@ local function refreshESP()
 end
 ESP.Refresh = refreshESP
 
-local sizeCache = {}
-local function cachedSize(char)
-	local c = sizeCache[char]
-	if c and os.clock() - c.t < 0.5 then return c.s end
-	local ok, s = pcall(function() return char:GetExtentsSize() end)
-	s = ok and s or Vector3.new(4, 6, 4)
-	sizeCache[char] = { s = s, t = os.clock() }
-	return s
-end
-
 local function updateESP()
 	local cam = Workspace.CurrentCamera
 	if not cam then return end
+	local camRight = cam.CFrame.RightVector
 	local myPos = cam.CFrame.Position
-	local vp = cam.ViewportSize
 	local myTeam = LocalPlayer.Team
 
 	for plr, d in pairs(ESP.Objects) do
@@ -1022,36 +983,39 @@ local function updateESP()
 		local valid = char and char.Parent and hum and hum.Parent and hum.Health > 0 and anchor and anchor.Parent
 		local skip = valid and ESP.TeamCheck and myTeam and plr.Team and plr.Team == myTeam
 		local on = ESP.Enabled and valid and not skip
-		local col = espColorFor(plr)
-		local inRange = false
-		local dist = 0
+		local dist, col = 0, espColorFor(plr)
 
 		if on then
 			dist = (anchor.Position - myPos).Magnitude
-			inRange = dist <= ESP.MaxDistance
+			if dist > ESP.MaxDistance then on = false end
 		end
-		on = on and inRange
 
-		--// GUI 2D
 		if d.Gui then
 			local show = on and ESP.Boxes and ESP.Method == "2D GUI"
 			if show then
-				local cf, size = char:GetBoundingBox()
-				local top = (cf * CFrame.new(0, size.Y / 2, 0)).Position
-				local bot = (cf * CFrame.new(0, -size.Y / 2, 0)).Position
-				local rgt = (cf * CFrame.new(size.X / 2, 0, 0)).Position
-				local lft = (cf * CFrame.new(-size.X / 2, 0, 0)).Position
-				local t3, tOn = cam:WorldToViewportPoint(top)
-				local b3, bOn = cam:WorldToViewportPoint(bot)
-				local r3 = cam:WorldToViewportPoint(rgt)
-				local l3 = cam:WorldToViewportPoint(lft)
-				if (tOn or bOn) and t3.Z > 0 then
+				local minY, maxY, r = getBounds(char, anchor)
+				local midY = (minY + maxY) / 2
+				local cx, cz = anchor.Position.X, anchor.Position.Z
+
+				local topW = Vector3.new(cx, maxY + 0.35, cz)
+				local botW = Vector3.new(cx, minY - 0.35, cz)
+				local midW = Vector3.new(cx, midY, cz)
+				local rW = midW + camRight * (r + 0.2)
+				local lW = midW - camRight * (r + 0.2)
+
+				local t3, tOn = cam:WorldToViewportPoint(topW)
+				local b3 = cam:WorldToViewportPoint(botW)
+				local r3 = cam:WorldToViewportPoint(rW)
+				local l3 = cam:WorldToViewportPoint(lW)
+
+				if tOn and t3.Z > 0 then
 					local x1 = math.min(l3.X, r3.X)
 					local x2 = math.max(l3.X, r3.X)
 					local y1 = math.min(t3.Y, b3.Y)
 					local y2 = math.max(t3.Y, b3.Y)
 					local w = math.max(x2 - x1, 8)
-					local h = math.max(y2 - y1, 8)
+					local h = math.max(y2 - y1, 10)
+
 					d.Gui.Visible = true
 					d.Gui.Position = UDim2.fromOffset(math.floor(x1), math.floor(y1))
 					d.Gui.Size = UDim2.fromOffset(math.floor(w), math.floor(h))
@@ -1062,11 +1026,13 @@ local function updateESP()
 					d.GuiName.Visible = ESP.Names
 					d.GuiName.TextColor3 = col
 					d.GuiName.Text = plr.Name
+
 					local hp = math.clamp(hum.Health / math.max(hum.MaxHealth, 1), 0, 1)
 					d.GuiHealth.Parent.Visible = ESP.Health
 					d.GuiHealth.Size = UDim2.new(1, 0, hp, 0)
 					d.GuiHealth.Position = UDim2.new(0, 0, 1 - hp, 0)
 					d.GuiHealth.BackgroundColor3 = Color3.fromRGB(math.floor(255 * (1 - hp)), math.floor(255 * hp), 60)
+
 					local parts = {}
 					if ESP.Distance then parts[#parts + 1] = ("%dm"):format(math.floor(dist)) end
 					if ESP.Weapon then
@@ -1084,73 +1050,22 @@ local function updateESP()
 			end
 		end
 
-		--// Drawing 2D
-		if d.DrawBox then
-			local show = on and ESP.Boxes and ESP.Method == "Drawing"
-			if show then
-				local cf, size = char:GetBoundingBox()
-				local top = (cf * CFrame.new(0, size.Y / 2, 0)).Position
-				local bot = (cf * CFrame.new(0, -size.Y / 2, 0)).Position
-				local rgt = (cf * CFrame.new(size.X / 2, 0, 0)).Position
-				local lft = (cf * CFrame.new(-size.X / 2, 0, 0)).Position
-				local t3, tOn = cam:WorldToViewportPoint(top)
-				local b3 = cam:WorldToViewportPoint(bot)
-				local r3 = cam:WorldToViewportPoint(rgt)
-				local l3 = cam:WorldToViewportPoint(lft)
-				if tOn then
-					local x1 = math.min(l3.X, r3.X)
-					local x2 = math.max(l3.X, r3.X)
-					local y1 = math.min(t3.Y, b3.Y)
-					local y2 = math.max(t3.Y, b3.Y)
-					local w = math.max(x2 - x1, 8)
-					local h = math.max(y2 - y1, 8)
-					d.DrawBox.Visible = true
-					d.DrawBox.Color = col
-					d.DrawBox.Thickness = ESP.Thickness
-					d.DrawBox.Position = Vector2.new(x1, y1)
-					d.DrawBox.Size = Vector2.new(w, h)
-					d.DrawFill.Visible = ESP.FillAlpha > 0
-					d.DrawFill.Color = col
-					d.DrawFill.Position = Vector2.new(x1, y1)
-					d.DrawFill.Size = Vector2.new(w, h)
-				else
-					d.DrawBox.Visible = false
-					d.DrawFill.Visible = false
-				end
-			else
-				d.DrawBox.Visible = false
-				d.DrawFill.Visible = false
-			end
-		end
-
-		--// 3D adornment
 		if d.Box then
 			d.Box.Adornee = anchor
 			d.Box.Visible = on and ESP.Boxes and ESP.Method == "3D Adornment"
 			if d.Box.Visible then
+				local minY, maxY, r = getBounds(char, anchor)
 				d.Box.Color3 = col
 				d.Box.Transparency = 0.4
-				local s = cachedSize(char)
-				d.Box.Size = Vector3.new(s.X + 0.4, s.Y + 0.4, s.Z + 0.4)
+				d.Box.Size = Vector3.new(r * 2, maxY - minY, r * 2)
 			end
 		end
 
-		--// chams
 		if d.Highlight then
 			d.Highlight.FillColor = col
 			d.Highlight.OutlineColor = col
-			d.Highlight.FillTransparency = (on and ESP.Chams) and (1 - 0.25) or 1
+			d.Highlight.FillTransparency = (on and ESP.Chams) and 0.75 or 1
 			d.Highlight.OutlineTransparency = (on and ESP.Chams) and 0 or 1
-		end
-
-		--// world nametag (optional, off when 2D GUI used)
-		if d.Billboard then
-			local show = on and ESP.Names and ESP.Method ~= "2D GUI"
-			d.Billboard.Enabled = show
-			if show then
-				d.BbName.TextColor3 = col
-				d.BbName.Text = plr.Name
-			end
 		end
 	end
 end
@@ -1173,32 +1088,24 @@ for _, p in ipairs(Players:GetPlayers()) do
 		end)
 	end
 end
-
 OnCameraChanged(function()
 	for plr in pairs(ESP.Objects) do destroyESP(plr) end
 	if ESP.Enabled then refreshESP() end
 end)
 
 --=====================================================================
--- 9. SKIN CHANGER
+-- 9. SKIN CHANGER (simple: weapon -> skin -> APPLY)
 --=====================================================================
 local Skin = {
 	Enabled = false,
-	Particles = false,
-	Aggressive = true,
-	Hue = 0,
-	Library = { Knife = {}, Gun = {}, Glove = {} },
+	Assignments = {},   -- weapon name -> skin name  ("*" = auto/everything)
+	Library = {},
 	Tracked = {},
 	Desired = {},
 	Originals = {},
 	HiddenSA = {},
 	Detected = "-",
 	Parts = 0,
-	Categories = {
-		Knife = { Enabled = true, Weapon = "Auto (equipped)", Skin = "★ Gold", Color = "Keep", Material = "Keep" },
-		Gun   = { Enabled = true, Weapon = "Auto (equipped)", Skin = "★ Gold", Color = "Keep", Material = "Keep" },
-		Glove = { Enabled = false, Weapon = "Auto (equipped)", Skin = "None", Color = "Keep", Material = "Keep" },
-	},
 }
 SleepScript.Skin = Skin
 
@@ -1221,81 +1128,45 @@ local function detectWeapon(model)
 	end
 end
 
-local function classifyPart(part, model, inChar)
-	local n = part.Name:lower()
-	if n:find("knife") or n:find("karambit") or n:find("bayonet") or n:find("dagger")
-		or n:find("blade") or n:find("talon") or n:find("flip") or n:find("gut") then return "Knife" end
-	if n:find("glove") or n:find("wrap") or n:find("hand") or n:find("arm") or n:find("sleeve") then return "Glove" end
-	local c = clean(part.Name)
-	for _, w in ipairs(WEAPONS) do
-		local cw = clean(w)
-		if #cw >= 3 and c:find(cw, 1, true) then return "Gun" end
-	end
-	local det = detectWeapon(model)
-	if det then
-		for _, k in ipairs(KNIVES) do if k == det then return "Knife" end end
-		for _, g in ipairs(GLOVES) do if g == det then return "Glove" end end
-		return "Gun"
-	end
-	if inChar then return "Body" end
-	return "Gun"
-end
-
 local function buildLibrary()
-	Skin.Library = { Knife = {}, Gun = {}, Glove = {} }
+	Skin.Library = {}
 	local seen = {}
-	local function catOf(name)
-		local n = name:lower()
-		if n:find("knife") or n:find("karambit") or n:find("bayonet") or n:find("dagger")
-			or n:find("blade") or n:find("talon") or n:find("bowie") or n:find("gut") then return "Knife" end
-		if n:find("glove") or n:find("wrap") or n:find("hand") then return "Glove" end
-		return "Gun"
-	end
-	local function add(name, id, cls)
+	local function add(name, id)
 		if not id or type(id) ~= "string" or id == "" then return end
 		if seen[id] then return end
 		seen[id] = true
-		local cat = catOf(name)
 		local key = name
-		if Skin.Library[cat][key] then key = name .. " [" .. cls .. "]" end
-		if Skin.Library[cat][key] then key = name .. " #" .. tostring(math.random(1000, 9999)) end
-		Skin.Library[cat][key] = id
+		if Skin.Library[key] then key = name .. " #" .. tostring(math.random(1000, 9999)) end
+		Skin.Library[key] = id
 	end
-	local function scan(root, budget)
-		local n = 0
-		for _, d in ipairs(root:GetDescendants()) do
-			n = n + 1
-			if n > budget then break end
-			local id
-			if d:IsA("Decal") or d:IsA("Texture") then id = d.Texture
-			elseif d:IsA("ImageLabel") or d:IsA("ImageButton") then id = d.Image
-			elseif d:IsA("SurfaceAppearance") then id = d.ColorMap
-			elseif d:IsA("MeshPart") then id = d.TextureID
-			elseif d:IsA("StringValue") then
-				local v = d.Value
-				if type(v) == "string" and (v:find("rbxassetid") or v:find("asset/?id=")) then id = v end
-			end
-			if id then add(d.Name, id, d.ClassName) end
+	local n = 0
+	for _, d in ipairs(ReplicatedStorage:GetDescendants()) do
+		n = n + 1
+		if n > 50000 then break end
+		local id
+		if d:IsA("Decal") or d:IsA("Texture") then id = d.Texture
+		elseif d:IsA("ImageLabel") or d:IsA("ImageButton") then id = d.Image
+		elseif d:IsA("SurfaceAppearance") then id = d.ColorMap
+		elseif d:IsA("MeshPart") then id = d.TextureID
+		elseif d:IsA("StringValue") then
+			local v = d.Value
+			if type(v) == "string" and (v:find("rbxassetid") or v:find("asset/?id=")) then id = v end
 		end
-	end
-	scan(ReplicatedStorage, 40000)
-	for _, nm in ipairs({ "Skins", "Skin", "Camos", "Camo", "Finishes", "Textures", "Assets", "Weapons" }) do
-		local f = ReplicatedStorage:FindFirstChild(nm)
-		if f then scan(f, 8000) end
+		if id then add(d.Name, id) end
 	end
 	local total = 0
-	for _, cat in pairs(Skin.Library) do for _ in pairs(cat) do total = total + 1 end end
+	for _ in pairs(Skin.Library) do total = total + 1 end
 	return total
 end
 
-local function skinOptions(cat)
+local function skinOptions()
 	local o = { "None" }
 	local k = {}
 	for key in pairs(BUILTIN_SKINS) do k[#k + 1] = key end
 	table.sort(k)
 	for _, key in ipairs(k) do o[#o + 1] = key end
 	local g = {}
-	for key in pairs(Skin.Library[cat] or {}) do g[#g + 1] = key end
+	for key in pairs(Skin.Library) do g[#g + 1] = key end
 	table.sort(g)
 	for _, key in ipairs(g) do o[#o + 1] = key end
 	return o
@@ -1340,81 +1211,47 @@ local function applyTexture(part, id)
 	end
 end
 
-local function matchesTarget(cat, model)
-	local target = Skin.Categories[cat].Weapon
-	if target == "Auto (equipped)" or target == "" then return true end
-	local ct = clean(target)
-	local cn = clean(model.Name)
-	if cn:find(ct, 1, true) or ct:find(cn, 1, true) then return true end
+local function assignmentFor(model)
 	local det = detectWeapon(model)
-	return det ~= nil and det == target
+	if det and Skin.Assignments[det] then return Skin.Assignments[det] end
+	if Skin.Assignments["*"] then return Skin.Assignments["*"] end
+	return nil
 end
 
-local function computeDesired(cat, part)
-	local cfg = Skin.Categories[cat]
-	local skinName = cfg.Skin
-	local color, material, texture
-	local b = BUILTIN_SKINS[skinName]
-	if b then
-		if b.Rainbow then
-			color = Color3.fromHSV(Skin.Hue, 0.85, 1)
-			material = Enum.Material.Neon
-		else
-			color = b.Color
-			if b.Material then material = Enum.Material[b.Material] end
-		end
-	else
-		local id = Skin.Library[cat] and Skin.Library[cat][skinName]
-		if id then
-			texture = id
-			color = Color3.new(1, 1, 1)
-		end
-	end
-	if cfg.Material ~= "Keep" then
-		local ok, m = pcall(function() return Enum.Material[cfg.Material] end)
-		if ok and m then material = m end
-	end
-	if cfg.Color ~= "Keep" then color = COLOR_LOOKUP[cfg.Color] or color end
-	return color, material, texture
-end
-
-local function stylePart(part, model, inChar)
+local function stylePart(part, model)
 	if not part:IsA("BasePart") then return end
-	local cat = classifyPart(part, model, inChar)
-	if cat == "Body" then return end
-	local cfg = Skin.Categories[cat]
-	if not cfg.Enabled then return end
-	if not matchesTarget(cat, model) then return end
-
+	local skinName = assignmentFor(model)
+	if not skinName or skinName == "None" then
+		if Skin.Originals[part] then
+			-- nothing assigned: leave original
+		end
+		return
+	end
 	if not Skin.Originals[part] then
 		Skin.Originals[part] = {
 			Material = part.Material, Color = part.Color, Reflectance = part.Reflectance,
 			TextureID = part:IsA("MeshPart") and part.TextureID or nil,
 		}
 	end
-	local color, material, texture = computeDesired(cat, part)
+
+	local color, material, texture
+	local b = BUILTIN_SKINS[skinName]
+	if b then
+		color = b.Color
+		if b.Material then material = Enum.Material[b.Material] end
+	else
+		local id = Skin.Library[skinName]
+		if id then
+			texture = id
+			color = Color3.new(1, 1, 1)
+		end
+	end
+
 	if texture then applyTexture(part, texture) else clearSkinChildren(part) restoreSA(part) end
 	if color then part.Color = color end
 	if material then part.Material = material end
 
-	Skin.Desired[part] = { Color = color, Material = material, Texture = texture, Cat = cat }
-
-	if Skin.Particles then
-		local p = part:FindFirstChild("SleepParticles")
-		if not p then
-			p = New("ParticleEmitter", {
-				Name = "SleepParticles", Rate = 10, Lifetime = NumberRange.new(0.3, 0.7),
-				Speed = NumberRange.new(0.2, 0.8), Size = NumberSequence.new(0.15),
-				LightEmission = 1, LightInfluence = 0,
-				Texture = "rbxasset://textures/particles/sparkles_main.dds",
-			}, part)
-		end
-		p.Color = ColorSequence.new(part.Color)
-		p.Enabled = true
-	else
-		local p = part:FindFirstChild("SleepParticles")
-		if p then p.Enabled = false end
-	end
+	Skin.Desired[part] = { Color = color, Material = material, Texture = texture, Skin = skinName }
 end
 
 local function restorePart(part)
@@ -1429,8 +1266,6 @@ local function restorePart(part)
 	end
 	clearSkinChildren(part)
 	restoreSA(part)
-	local p = part:FindFirstChild("SleepParticles")
-	if p then p.Enabled = false end
 	Skin.Desired[part] = nil
 end
 
@@ -1446,17 +1281,14 @@ local function collectParts()
 	local out = {}
 	local cam = Workspace.CurrentCamera
 	local camPos = cam and cam.CFrame.Position
-
-	local function pushPart(part, model, inChar)
-		out[#out + 1] = { part = part, model = model, inChar = inChar }
-	end
+	local function push(part, model) out[#out + 1] = { part = part, model = model } end
 
 	if cam then
 		for _, c in ipairs(cam:GetChildren()) do
-			if c:IsA("BasePart") then pushPart(c, c, false)
+			if c:IsA("BasePart") then push(c, c)
 			elseif c:IsA("Model") or c:IsA("Folder") then
 				for _, d in ipairs(c:GetDescendants()) do
-					if d:IsA("BasePart") then pushPart(d, c, false) end
+					if d:IsA("BasePart") then push(d, c) end
 				end
 			end
 		end
@@ -1464,36 +1296,25 @@ local function collectParts()
 	for _, c in ipairs(Workspace:GetChildren()) do
 		if isViewModel(c) then
 			for _, d in ipairs(c:GetDescendants()) do
-				if d:IsA("BasePart") then pushPart(d, c, false) end
+				if d:IsA("BasePart") then push(d, c) end
 			end
 		end
 	end
-	local char = LocalPlayer.Character
-	if char then
-		for _, d in ipairs(char:GetDescendants()) do
-			if d:IsA("BasePart") then pushPart(d, char, true) end
-		end
-	end
-
-	--// aggressive: nearby small models (catches renamed viewmodels)
-	if Skin.Aggressive and camPos then
+	-- nearby small models (catches renamed viewmodels)
+	if camPos then
 		for _, c in ipairs(Workspace:GetChildren()) do
-			if c:IsA("Model") and not isViewModel(c) then
-				local isChar = Players:GetPlayerFromCharacter(c) ~= nil
-				if not isChar then
-					local ok, ext = pcall(function() return c:GetExtentsSize() end)
-					if ok and ext and ext.Magnitude < 30 then
-						local parts = {}
-						local near = false
-						for _, d in ipairs(c:GetDescendants()) do
-							if d:IsA("BasePart") then
-								parts[#parts + 1] = d
-								if not near and (d.Position - camPos).Magnitude < 14 then near = true end
-							end
+			if c:IsA("Model") and not isViewModel(c) and not Players:GetPlayerFromCharacter(c) then
+				local ok, ext = pcall(function() return c:GetExtentsSize() end)
+				if ok and ext and ext.Magnitude < 30 then
+					local parts, near = {}, false
+					for _, d in ipairs(c:GetDescendants()) do
+						if d:IsA("BasePart") then
+							parts[#parts + 1] = d
+							if not near and (d.Position - camPos).Magnitude < 14 then near = true end
 						end
-						if near and #parts <= 60 then
-							for _, d in ipairs(parts) do pushPart(d, c, false) end
-						end
+					end
+					if near and #parts <= 60 then
+						for _, d in ipairs(parts) do push(d, c) end
 					end
 				end
 			end
@@ -1507,12 +1328,10 @@ local function scanForParts()
 	local list = collectParts()
 	Skin.Parts = #list
 	for _, e in ipairs(list) do
-		if not Skin.Tracked[e.part] then
-			Skin.Tracked[e.part] = true
-			local det = detectWeapon(e.model)
-			if det then Skin.Detected = det end
-		end
-		stylePart(e.part, e.model, e.inChar)
+		Skin.Tracked[e.part] = true
+		local det = detectWeapon(e.model)
+		if det then Skin.Detected = det end
+		stylePart(e.part, e.model)
 	end
 end
 Skin.Scan = scanForParts
@@ -1557,11 +1376,11 @@ OnCameraChanged(function()
 end)
 
 --=====================================================================
--- 10. MOVEMENT
+-- 10. MOVEMENT (bhop + proper strafe)
 --=====================================================================
 local Move = {
 	Bhop = false, InfJump = false, HoldingSpace = false,
-	AirStrafe = true, StrafeAccel = 55, MaxSpeed = 55, AutoStrafe = false,
+	AirStrafe = true, StrafeAccel = 45, MaxSpeed = 50, AutoStrafe = false,
 	SpeedEnabled = false, WalkSpeed = 16,
 	JumpEnabled = false, JumpPower = 50,
 	Sprint = false, SprintKey = "LeftShift", SprintSpeed = 24, Sprinting = false,
@@ -1596,6 +1415,7 @@ Conn(UserInputService.InputEnded, function(i)
 end)
 
 local baseWalkSpeed = 16
+local lastAirHoriz = nil
 local function hookHumanoid()
 	local char = LocalPlayer.Character
 	local hum = char and char:FindFirstChildOfClass("Humanoid")
@@ -1605,7 +1425,13 @@ local function hookHumanoid()
 		if not Move.Bhop or not Move.HoldingSpace then return end
 		if new == Enum.HumanoidStateType.Landed then
 			local hrp = char:FindFirstChild("HumanoidRootPart")
-			if hrp and isGrounded(hum, hrp) then doJump(hum) end
+			if hrp then
+				if lastAirHoriz then
+					local v = getVel(hrp)
+					setVel(hrp, Vector3.new(lastAirHoriz.X, v.Y, lastAirHoriz.Z))
+				end
+				if isGrounded(hum, hrp) then doJump(hum) end
+			end
 		end
 	end)
 end
@@ -1616,56 +1442,61 @@ Conn(RunService.Heartbeat, function(dt)
 	local hum = char and char:FindFirstChildOfClass("Humanoid")
 	if not hum then return end
 	local hrp = char:FindFirstChild("HumanoidRootPart")
-	local airborne = not isGrounded(hum, hrp)
+	if not hrp then return end
 
-	if Move.Bhop and Move.HoldingSpace and not airborne and os.clock() >= bhopCD then
+	local airborne = not isGrounded(hum, hrp)
+	local holding = Move.HoldingSpace
+	local vel = getVel(hrp)
+	local horiz = Vector3.new(vel.X, 0, vel.Z)
+	local speed = horiz.Magnitude
+
+	if airborne then lastAirHoriz = horiz else lastAirHoriz = nil end
+
+	--// AUTO JUMP on touch ground
+	if Move.Bhop and holding and not airborne and os.clock() >= bhopCD then
 		doJump(hum)
 		bhopCD = os.clock() + 0.05
 	end
 
-	if Move.Bhop and Move.AirStrafe and Move.HoldingSpace and airborne and hrp then
+	--// AIR STRAFE ACCEL
+	if Move.Bhop and Move.AirStrafe and holding and airborne then
 		local cam = Workspace.CurrentCamera
 		if cam then
 			local wish = Vector3.zero
-			local a = UserInputService:IsKeyDown(Enum.KeyCode.A)
-			local d = UserInputService:IsKeyDown(Enum.KeyCode.D)
-			if a and not d then wish = -cam.CFrame.RightVector
-			elseif d and not a then wish = cam.CFrame.RightVector
-			elseif Move.AutoStrafe then
+			if UserInputService:IsKeyDown(Enum.KeyCode.W) then wish += cam.CFrame.LookVector end
+			if UserInputService:IsKeyDown(Enum.KeyCode.S) then wish -= cam.CFrame.LookVector end
+			if UserInputService:IsKeyDown(Enum.KeyCode.A) then wish -= cam.CFrame.RightVector end
+			if UserInputService:IsKeyDown(Enum.KeyCode.D) then wish += cam.CFrame.RightVector end
+			if wish.Magnitude < 0.01 and Move.AutoStrafe then
 				autoTimer = autoTimer + dt
 				if autoTimer > 0.35 then autoTimer = 0 autoDir = -autoDir end
 				wish = cam.CFrame.RightVector * autoDir
 			end
 			if wish.Magnitude > 0.01 then
-				wish = wish.Unit
-				local vel = getVel(hrp)
-				local horiz = Vector3.new(vel.X, 0, vel.Z)
-				local proj = horiz:Dot(wish)
-				local accel = math.min(Move.StrafeAccel * dt, math.max(Move.MaxSpeed - proj, 0))
-				if accel > 0 then
-					local nv = vel + wish * accel
-					local hv = Vector3.new(nv.X, 0, nv.Z)
-					if hv.Magnitude > Move.MaxSpeed * 1.6 then
-						local s = (Move.MaxSpeed * 1.6) / hv.Magnitude
-						nv = Vector3.new(nv.X * s, nv.Y, nv.Z * s)
-					end
-					setVel(hrp, nv)
+				wish = Vector3.new(wish.X, 0, wish.Z).Unit
+				local room = Move.MaxSpeed - speed
+				if room > 0 then
+					local add = math.min(Move.StrafeAccel * dt, room)
+					setVel(hrp, vel + wish * add)
 				end
 			end
 		end
 	end
 
-	if Move.Bhop and Move.HoldingSpace and airborne then
-		if hum.WalkSpeed ~= Move.MaxSpeed then hum.WalkSpeed = Move.MaxSpeed end
+	--// SPEED KEEPER: WalkSpeed follows your real speed so the controller
+	--   cannot brake the speed you gained while strafing
+	if Move.Bhop and holding then
+		local target = math.clamp(math.max(speed, baseWalkSpeed), baseWalkSpeed, Move.MaxSpeed)
+		if math.abs(hum.WalkSpeed - target) > 0.1 then hum.WalkSpeed = target end
 	elseif Move.SpeedEnabled then
 		local target = Move.WalkSpeed
 		if Move.Sprint and Move.Sprinting then target = Move.SprintSpeed end
 		if math.abs(hum.WalkSpeed - target) > 0.1 then hum.WalkSpeed = target end
-	elseif Move.Bhop and hum.WalkSpeed ~= baseWalkSpeed then
+	elseif hum.WalkSpeed ~= baseWalkSpeed then
 		hum.WalkSpeed = baseWalkSpeed
 	end
 
-	if Move.InfJump and Move.HoldingSpace then
+	if Move.InfJump and holding then
 		if hum:GetState() == Enum.HumanoidStateType.Freefall then doJump(hum) end
 	end
 	if Move.JumpEnabled and math.abs(hum.JumpPower - Move.JumpPower) > 0.1 then hum.JumpPower = Move.JumpPower end
@@ -2064,43 +1895,7 @@ Conn(LocalPlayer.Idled, function()
 end)
 
 --=====================================================================
--- 15. CONFIG
---=====================================================================
-local ConfigName = "SleepScript_BloxStrike.json"
-local function saveConfig()
-	local ok = pcall(function()
-		writefile(ConfigName, HttpService:JSONEncode({
-			ESP = { Enabled = ESP.Enabled, Method = ESP.Method, MaxDistance = ESP.MaxDistance },
-			Move = { Bhop = Move.Bhop, StrafeAccel = Move.StrafeAccel, MaxSpeed = Move.MaxSpeed },
-			FOV = { Enabled = FOV.Enabled, Value = FOV.Value, Mode = FOV.Mode },
-		}))
-	end)
-	Notify("Config", ok and "saved" or "writefile unavailable", 2)
-end
-local function loadConfig()
-	if not (isfile and isfile(ConfigName)) then Notify("Config", "no config", 2) return end
-	local ok, d = pcall(function() return HttpService:JSONDecode(readfile(ConfigName)) end)
-	if not ok then Notify("Config", "read error", 2) return end
-	if d.ESP then
-		ESP.MaxDistance = d.ESP.MaxDistance or 2500
-		if d.ESP.Method then ESP.Method = d.ESP.Method end
-		if d.ESP.Enabled then ESP.Enabled = true refreshESP() end
-	end
-	if d.Move then
-		Move.StrafeAccel = d.Move.StrafeAccel or 55
-		Move.MaxSpeed = d.Move.MaxSpeed or 55
-		Move.Bhop = d.Move.Bhop or false
-	end
-	if d.FOV then
-		FOV.Value = d.FOV.Value or 100
-		FOV.Mode = d.FOV.Mode or "Safe"
-		if d.FOV.Enabled then FOV.Enabled = true end
-	end
-	Notify("Config", "loaded", 2)
-end
-
---=====================================================================
--- 16. MENU
+-- 15. MENU
 --=====================================================================
 local Window = Lib:Window({ Title = "SleepScript", Subtitle = "bloxstrike edition  •  v" .. SleepScript.Version })
 local Tabs = {
@@ -2114,35 +1909,28 @@ local Tabs = {
 
 do -- VISUALS
 	local t = Tabs.Visuals.Content
-	Section(t, "ESP / Wallhack")
+	Section(t, "ESP")
 	local dbg = Label(t, "targets: 0")
 	Toggle(t, { Text = "Enable ESP", Default = false, Callback = function(v)
 		ESP.Enabled = v
 		if v then refreshESP() end
 	end })
-	Dropdown(t, { Text = "ESP Method", Options = { "2D GUI", "Drawing", "3D Adornment", "Off" },
-		Default = "2D GUI", Callback = function(v)
-			ESP.Method = v
-			Notify("ESP", "method: " .. v, 2)
-		end })
 	Toggle(t, { Text = "Boxes", Default = true, Callback = function(v) ESP.Boxes = v end })
-	Toggle(t, { Text = "Chams (Highlight)", Default = false, Callback = function(v) ESP.Chams = v end })
 	Toggle(t, { Text = "Names", Default = true, Callback = function(v) ESP.Names = v end })
 	Toggle(t, { Text = "Health Bar", Default = true, Callback = function(v) ESP.Health = v end })
 	Toggle(t, { Text = "Distance", Default = true, Callback = function(v) ESP.Distance = v end })
 	Toggle(t, { Text = "Weapon", Default = true, Callback = function(v) ESP.Weapon = v end })
-	Toggle(t, { Text = "Team Check", Default = false, Callback = function(v) ESP.TeamCheck = v end })
-	Toggle(t, { Text = "Team Colors", Default = true, Callback = function(v) ESP.UseTeamColor = v end })
+	Toggle(t, { Text = "Only enemies (team check)", Default = true, Callback = function(v) ESP.TeamCheck = v end })
+	Toggle(t, { Text = "Chams (Highlight)", Default = false, Callback = function(v) ESP.Chams = v end })
+	Toggle(t, { Text = "Team colors", Default = true, Callback = function(v) ESP.UseTeamColor = v end })
 	Slider(t, { Text = "Max Distance", Min = 100, Max = 5000, Default = 2500, Callback = function(v) ESP.MaxDistance = v end })
 	Slider(t, { Text = "Box Thickness", Min = 1, Max = 4, Default = 1.5, Decimals = 1, Callback = function(v) ESP.Thickness = v end })
-	Slider(t, { Text = "Box Fill", Min = 0, Max = 0.6, Default = 0.12, Decimals = 2, Callback = function(v) ESP.FillAlpha = v end })
-	Button(t, { Text = "Refresh ESP targets", Callback = function()
-		refreshESP()
-		Notify("ESP", "tracked: " .. ESP.Debug, 2)
-	end })
-	Label(t, "Если снова не видно — нажми Refresh и напиши, сколько показал счётчик.")
+	Slider(t, { Text = "Box Fill", Min = 0, Max = 0.5, Default = 0.10, Decimals = 2, Callback = function(v) ESP.FillAlpha = v end })
+	Dropdown(t, { Text = "Render method", Options = { "2D GUI", "3D Adornment" },
+		Default = "2D GUI", Callback = function(v) ESP.Method = v end })
+	Button(t, { Text = "Refresh targets", Callback = function() refreshESP() Notify("ESP", "tracked: " .. ESP.Debug, 2) end })
 
-	Section(t, "Field Of View (camera flip fix)")
+	Section(t, "Field Of View")
 	Toggle(t, { Text = "Custom FOV", Default = false, Callback = function(v)
 		if v then
 			local cam = Workspace.CurrentCamera
@@ -2151,13 +1939,10 @@ do -- VISUALS
 		FOV.Enabled = v
 		if not v then FOV:Reset() end
 	end })
-	Dropdown(t, { Text = "Apply Mode", Options = { "Safe (throttled)", "Instant (every frame)", "Off" },
-		Default = "Safe (throttled)", Callback = function(v)
-			FOV.Mode = v:find("Instant") and "Instant" or (v:find("Off") and "Off" or "Safe")
-		end })
+	Dropdown(t, { Text = "Apply Mode", Options = { "Safe", "Instant", "Off" }, Default = "Safe",
+		Callback = function(v) FOV.Mode = v end })
 	Slider(t, { Text = "FOV Value", Min = 40, Max = 140, Default = 100, Callback = function(v) FOV.Value = v end })
 	Button(t, { Text = "Reset FOV", Callback = function() FOV:Reset() end })
-	Label(t, "Если камера дёргается при стрельбе — поставь Apply Mode = Off или Safe.")
 
 	Section(t, "Custom Sky")
 	local skyStatus = Label(t, "sky: game default")
@@ -2177,54 +1962,24 @@ do -- VISUALS
 		Sky.KillAtmosphere = v
 		if Sky.Enabled then Sky.Apply(Sky.Preset) end
 	end })
-	Button(t, { Text = "Apply Sky ID from clipboard", Callback = function()
-		local ok, clip = pcall(function() return getclipboard() end)
-		if ok and clip and clip ~= "" then
-			Sky.SetCustom(clip)
-			Notify("Sky", "applied: " .. clip, 3)
-		else
-			Notify("Sky", "clipboard empty / unsupported", 3)
-		end
-	end })
-	Button(t, { Text = "Restore game sky", Callback = function() Sky.Restore() updSky() Notify("Sky", "restored", 2) end })
+	Button(t, { Text = "Restore game sky", Callback = function() Sky.Restore() updSky() end })
 
 	Section(t, "Other")
 	Toggle(t, { Text = "Fullbright", Default = false, Callback = setFullbright })
-	Toggle(t, { Text = "Extra Atmosphere", Default = false, Callback = function(v)
-		if v then
-			if not Vis.Atm then
-				Vis.Atm = New("Atmosphere", { Density = 0.35, Haze = 1.5, Glare = 0.2 }, Lighting)
-			end
-			Vis.Atm.Parent = Lighting
-		elseif Vis.Atm then
-			Vis.Atm.Parent = nil
-		end
-	end })
-	Toggle(t, { Text = "Bloom", Default = false, Callback = function(v)
-		if v then
-			if not Vis.BloomFx then
-				Vis.BloomFx = New("BloomEffect", { Intensity = 1.2, Size = 24, Threshold = 0.9 }, Lighting)
-			end
-			Vis.BloomFx.Enabled = true
-		elseif Vis.BloomFx then
-			Vis.BloomFx.Enabled = false
-		end
-	end })
 	Toggle(t, { Text = "Player Aura Particles", Default = false, Callback = setAura })
 	Slider(t, { Text = "Time Of Day", Min = 0, Max = 24, Default = 14, Callback = function(v) Lighting.ClockTime = v end })
 end
 
-do -- SKIN
+do -- SKIN (simple)
 	local t = Tabs.Skin.Content
-	local status = Label(t, "detected: -   parts found: 0")
+	local status = Label(t, "detected: -   |   parts: 0   |   game skins: 0")
 	local function updStatus()
 		local n = 0
-		for _, cat in pairs(Skin.Library) do for _ in pairs(cat) do n = n + 1 end end
-		status.Text = string.format("detected: %s   |   parts tracked: %d   |   game textures: %d",
-			Skin.Detected, Skin.Parts, n)
+		for _ in pairs(Skin.Library) do n = n + 1 end
+		status.Text = string.format("detected: %s   |   parts: %d   |   game skins: %d", Skin.Detected, Skin.Parts, n)
 	end
 
-	Toggle(t, { Text = "Enable SkinChanger (master)", Default = false, Callback = function(v)
+	Toggle(t, { Text = "Enable SkinChanger", Default = false, Callback = function(v)
 		Skin.Enabled = v
 		if v then
 			scanForParts()
@@ -2234,69 +1989,64 @@ do -- SKIN
 		end
 		updStatus()
 	end })
-	Button(t, { Text = "Force Apply (rescan + apply)", Callback = function()
-		restyleAll()
-		updStatus()
-		Notify("Skin", "applied to " .. Skin.Parts .. " parts", 3)
-	end })
-	Toggle(t, { Text = "Aggressive scan (nearby viewmodels)", Default = true, Callback = function(v)
-		Skin.Aggressive = v
-		restyleAll()
-	end })
-	Button(t, { Text = "Rescan Game Skin Files", Callback = function()
-		local n = buildLibrary()
-		for cat in pairs(Skin.Categories) do
-			if Skin.Dropdowns[cat] then Skin.Dropdowns[cat]:SetOptions(skinOptions(cat)) end
+
+	Section(t, "Pick weapon and skin")
+	local weaponDd = Dropdown(t, {
+		Text = "Weapon / Knife",
+		Options = (function()
+			local o = { "Auto (everything)" }
+			for _, w in ipairs(WEAPONS) do o[#o + 1] = w end
+			for _, k in ipairs(KNIVES) do o[#o + 1] = k end
+			for _, g in ipairs(GLOVES) do o[#o + 1] = g end
+			return o
+		end)(),
+		Default = "Auto (everything)",
+	})
+	local skinDd = Dropdown(t, { Text = "Skin (from game)", Options = skinOptions(), Default = "★ Gold" })
+
+	Button(t, { Text = ">>> APPLY SKIN <<<", Callback = function()
+		local w = weaponDd.Value
+		local s = skinDd.Value
+		local key = (w == "Auto (everything)") and "*" or w
+		Skin.Assignments[key] = s
+		if not Skin.Enabled then
+			Skin.Enabled = true
+			Notify("Skin", "skinchanger enabled", 2)
 		end
+		scanForParts()
+		restyleAll()
 		updStatus()
-		Notify("Skin", "found " .. n .. " textures in game", 3)
+		Notify("Skin", w .. " -> " .. s, 3)
 	end })
 
-	Skin.Dropdowns = {}
-	local function buildCategory(cat, title, list)
-		Section(t, title)
-		Toggle(t, { Text = "Apply to " .. title, Default = (cat ~= "Glove"), Callback = function(v)
-			Skin.Categories[cat].Enabled = v
-			restyleAll()
-		end })
-		Dropdown(t, { Text = "Weapon", Options = (function()
-			local o = { "Auto (equipped)" }
-			for _, w in ipairs(list) do o[#o + 1] = w end
-			return o
-		end)(), Default = "Auto (equipped)", Callback = function(v)
-			Skin.Categories[cat].Weapon = v
-			restyleAll()
-		end })
-		Skin.Dropdowns[cat] = Dropdown(t, { Text = "Skin", Options = skinOptions(cat), Default = Skin.Categories[cat].Skin,
-			Callback = function(v)
-				Skin.Categories[cat].Skin = v
-				restyleAll()
-				Notify("Skin", cat .. " -> " .. v, 2)
-			end })
-		Dropdown(t, { Text = "Color override", Options = (function()
-			local o = { "Keep" }
-			local k = {}
-			for c in pairs(COLOR_LOOKUP) do k[#k + 1] = c end
-			table.sort(k)
-			for _, c in ipairs(k) do o[#o + 1] = c end
-			return o
-		end)(), Default = "Keep", Callback = function(v)
-			Skin.Categories[cat].Color = v
-			restyleAll()
-		end })
-		Dropdown(t, { Text = "Material override", Options = MATERIALS, Default = "Keep", Callback = function(v)
-			Skin.Categories[cat].Material = v
-			restyleAll()
-		end })
-	end
-	buildCategory("Knife", "Knives", KNIVES)
-	buildCategory("Gun", "Weapons", WEAPONS)
-	buildCategory("Glove", "Gloves", GLOVES)
+	Button(t, { Text = "Remove skin from this weapon", Callback = function()
+		local w = weaponDd.Value
+		local key = (w == "Auto (everything)") and "*" or w
+		Skin.Assignments[key] = nil
+		clearAll()
+		restyleAll()
+		Notify("Skin", "removed: " .. w, 2)
+	end })
 
-	Section(t, "Extras")
-	Toggle(t, { Text = "Particles on skins", Default = false, Callback = function(v) Skin.Particles = v restyleAll() end })
-	Button(t, { Text = "Clear / restore originals", Callback = function() clearAll() Notify("Skin", "restored", 2) end })
-	Label(t, "★ = встроенный скин (виден всегда, цвет+материал). Остальное — реальные текстуры из файлов игры.")
+	Button(t, { Text = "Rescan game skins", Callback = function()
+		local n = buildLibrary()
+		skinDd:SetOptions(skinOptions())
+		updStatus()
+		Notify("Skin", "found " .. n .. " skins in game files", 3)
+	end })
+
+	Section(t, "Assignments")
+	local listLbl = Label(t, "none")
+	local function updList()
+		local parts = {}
+		for k, v in pairs(Skin.Assignments) do
+			parts[#parts + 1] = (k == "*" and "ALL" or k) .. " -> " .. v
+		end
+		table.sort(parts)
+		listLbl.Text = #parts > 0 and table.concat(parts, "\n") or "none"
+	end
+	Skin.UpdateList = updList
+	updList()
 	updStatus()
 end
 
@@ -2304,11 +2054,12 @@ do -- MOVEMENT
 	local t = Tabs.Movement.Content
 	Section(t, "Bunny Hop + Strafe")
 	Toggle(t, { Text = "Auto BunnyHop (hold Space)", Default = false, Callback = function(v) Move.Bhop = v end })
-	Toggle(t, { Text = "Air Strafe Speed Gain", Default = true, Callback = function(v) Move.AirStrafe = v end })
-	Slider(t, { Text = "Strafe Acceleration", Min = 10, Max = 150, Default = 55, Callback = function(v) Move.StrafeAccel = v end })
-	Slider(t, { Text = "Max Speed", Min = 20, Max = 120, Default = 55, Callback = function(v) Move.MaxSpeed = v end })
-	Toggle(t, { Text = "Auto Strafe", Default = false, Callback = function(v) Move.AutoStrafe = v end })
+	Toggle(t, { Text = "Air Strafe (builds speed)", Default = true, Callback = function(v) Move.AirStrafe = v end })
+	Slider(t, { Text = "Strafe Acceleration", Min = 10, Max = 150, Default = 45, Callback = function(v) Move.StrafeAccel = v end })
+	Slider(t, { Text = "Max Speed", Min = 20, Max = 120, Default = 50, Callback = function(v) Move.MaxSpeed = v end })
+	Toggle(t, { Text = "Auto Strafe (no A/D needed)", Default = false, Callback = function(v) Move.AutoStrafe = v end })
 	Toggle(t, { Text = "Infinite Jump", Default = false, Callback = function(v) Move.InfJump = v end })
+	Label(t, "Hold Space, прыгай и стрейфь A/D в воздухе — скорость растёт до Max Speed и держится.")
 	Section(t, "Speed")
 	Toggle(t, { Text = "Custom WalkSpeed", Default = false, Callback = function(v) Move.SpeedEnabled = v end })
 	Slider(t, { Text = "WalkSpeed", Min = 8, Max = 200, Default = 16, Callback = function(v) Move.WalkSpeed = v end })
@@ -2340,8 +2091,7 @@ do -- PERF
 	Toggle(t, { Text = "Disable Part Shadows", Default = false, Callback = function(v) Perf.CastShadow = v applyPerf() end })
 	Dropdown(t, { Text = "Graphics Quality", Options = { "Keep", "Auto", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10" },
 		Default = "Keep", Callback = function(v) Perf.Quality = v applyPerf() end })
-	Button(t, { Text = "Re-apply", Callback = function() applyPerf() Notify("Performance", "reapplied", 2) end })
-	Button(t, { Text = "Restore everything", Callback = function() restorePerf() Notify("Performance", "restored", 2) end })
+	Button(t, { Text = "Restore everything", Callback = function() restorePerf() end })
 end
 
 do -- MISC
@@ -2380,9 +2130,6 @@ do -- SETTINGS
 	end })
 	Slider(t, { Text = "UI Scale", Min = 0.7, Max = 1.4, Default = 1, Decimals = 2, Callback = function(v) Window.Scale.Scale = v end })
 	Button(t, { Text = "Reset Menu Position", Callback = function() Window.Holder.Position = UDim2.new(0.5, 0, 0.5, 0) end })
-	Section(t, "Config")
-	Button(t, { Text = "Save Config", Callback = saveConfig })
-	Button(t, { Text = "Load Config", Callback = loadConfig })
 	Button(t, { Text = "Unload Script", Callback = function() SleepScript:Unload() end })
 	Section(t, "About")
 	Label(t, "SleepScript v" .. SleepScript.Version .. " for BloxStrike.\nRightShift — menu, F4 — overlay.")
@@ -2391,40 +2138,34 @@ end
 Window:Select(Tabs.Visuals)
 
 --=====================================================================
--- 17. LOOPS
+-- 16. LOOPS
 --=====================================================================
-local espTimer, skinTimer, enforceTimer = 0, 0, 0
+local espTimer, skinTimer, enforceTimer, listTimer = 0, 0, 0, 0
 Conn(RunService.RenderStepped, function(dt)
 	updateESP()
-
 	espTimer += dt
 	if espTimer >= 1 then
 		espTimer = 0
 		refreshESP()
 	end
-
-	skinTimer += dt
-	if skinTimer >= 0.25 then
-		skinTimer = 0
-		if Skin.Enabled then
-			scanForParts()
-			local anyRainbow = Skin.Categories.Gun.Skin == "★ Rainbow"
-				or Skin.Categories.Knife.Skin == "★ Rainbow"
-				or Skin.Categories.Glove.Skin == "★ Rainbow"
-			if anyRainbow then Skin.Hue = (Skin.Hue + 0.05) % 1 end
-		end
-	end
 end)
-
--- enforcement OUTSIDE RenderStepped (reduces camera interference)
 Conn(RunService.Heartbeat, function(dt)
 	enforceTimer = enforceTimer + dt
 	if enforceTimer >= 0.1 then
 		enforceTimer = 0
 		enforceDesired()
 	end
+	skinTimer = skinTimer + dt
+	if skinTimer >= 0.25 then
+		skinTimer = 0
+		if Skin.Enabled then scanForParts() end
+	end
+	listTimer = listTimer + dt
+	if listTimer >= 1 then
+		listTimer = 0
+		if Skin.UpdateList then pcall(Skin.UpdateList) end
+	end
 end)
-
 Conn(LocalPlayer.CharacterAdded, function()
 	task.wait(1)
 	hookHumanoid()
@@ -2438,7 +2179,7 @@ task.spawn(function()
 end)
 
 --=====================================================================
--- 18. UNLOAD
+-- 17. UNLOAD
 --=====================================================================
 function SleepScript:Unload()
 	self.Unloaded = true
@@ -2451,11 +2192,7 @@ function SleepScript:Unload()
 	pcall(function() clearAll() end)
 	pcall(function() Sky.Restore() end)
 	pcall(function() setFullbright(false) end)
-	pcall(function()
-		if Vis.Atm then Vis.Atm:Destroy() end
-		if Vis.BloomFx then Vis.BloomFx:Destroy() end
-		if auraEmitter then auraEmitter:Destroy() end
-	end)
+	pcall(function() if auraEmitter then auraEmitter:Destroy() end end)
 	pcall(function() FOV:Reset() end)
 	_G.SleepScript = nil
 	Notify("SleepScript", "unloaded", 3)
@@ -2463,7 +2200,7 @@ function SleepScript:Unload()
 end
 
 --=====================================================================
--- 19. BOOT
+-- 18. BOOT
 --=====================================================================
 Window:Toggle(true)
 task.wait(0.4)
