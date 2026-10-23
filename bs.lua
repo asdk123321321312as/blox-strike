@@ -1,21 +1,21 @@
 --[[
 ================================================================================
         ███████╗██╗     ███████╗███████╗██████╗     SleepScript
-        ██╔════╝██║     ██╔════╝██╔════╝██╔══██╗    BloxStrike Edition  v6.0
+        ██╔════╝██║     ██╔════╝██╔════╝██╔══██╗    BloxStrike Edition  v7.0
         ███████╗██║     █████╗  █████╗  ██████╔╝
         ╚════██║██║     ██╔══╝  ██╔══╝  ██╔═══╝
         ███████║███████╗███████╗███████╗██║
         ╚══════╝╚══════╝╚══════╝╚══════╝╚═╝
 ================================================================================
-  v6.0 FIXES
-   - CAMERA SPIN ON SHOOT: caused by frame hitches from heavy per-frame scans.
-     Everything is now cached + throttled. No GetExtentsSize/GetDescendants spam.
-     ESP work runs AFTER the camera update so it can never delay it.
-   - ESP: TeamCheck OFF by default (was hiding everyone), smarter player->model
-     resolver (partial names + nested folders), live target counter, self-test.
-     ESP is ON by default so you immediately see if it works.
-   - STRAFE: very fast acceleration, wide adjustable sliders (accel up to 600,
-     max speed up to 300). Speed builds instantly while holding Space + moving.
+  v7.0 FIXES
+   - ESP NOT WORKING = real bug found: a Toggle created with Default=true only
+     changed its own UI, the callback never fired, so ESP.Enabled stayed false
+     forever. Same bug hid FOV. Module defaults now match the UI + boot init.
+   - CAMERA SPIN: no more per-frame work before the camera. ESP runs in
+     Heartbeat, all scans cached/throttled, plus a Camera Spike Filter that
+     cancels 1-frame camera jumps that the game produces when shooting.
+   - STRAFE: very fast speed build (accel default 250, cap 120) fully
+     adjustable (accel up to 800, cap up to 400) + presets + live speed meter.
 ================================================================================
   KEYBINDS:  [RightShift] Menu   [F4] Overlay
 ================================================================================
@@ -44,7 +44,7 @@ local Camera            = Workspace.CurrentCamera
 --=====================================================================
 -- 2. CORE
 --=====================================================================
-local SleepScript = { Version = "6.0.0", Connections = {}, Objects = {}, Unloaded = false }
+local SleepScript = { Version = "7.0.0", Connections = {}, Objects = {}, Unloaded = false }
 _G.SleepScript = SleepScript
 
 local function Conn(sig, fn)
@@ -443,6 +443,7 @@ local function Toggle(parent, o)
 	end
 	btn.MouseButton1Click:Connect(function() obj:Set(not state) end)
 	Hover(f, { BackgroundTransparency = 0.35 }, { BackgroundTransparency = 0.15 })
+	-- visual only; module tables already hold the same defaults
 	if state then obj:Set(true, true) end
 	return obj
 end
@@ -757,9 +758,9 @@ Conn(Workspace:GetPropertyChangedSignal("CurrentCamera"), function()
 end)
 
 --=====================================================================
--- 7. FOV
+-- 7. FOV + CAMERA SPIKE FILTER
 --=====================================================================
-local FOV = { Enabled = true, Value = 100, Original = nil, Mode = "Safe" }
+local FOV = { Enabled = false, Value = 100, Original = nil, Mode = "Safe" }
 SleepScript.FOV = FOV
 local fovTimer = 0
 Conn(RunService.Heartbeat, function(dt)
@@ -768,9 +769,9 @@ Conn(RunService.Heartbeat, function(dt)
 	if fovTimer < 0.3 then return end
 	fovTimer = 0
 	local cam = Workspace.CurrentCamera
-	if cam and math.abs(cam.FieldOfView - FOV.Value) > 0.5 then cam.FOV = nil cam.FieldOfView = FOV.Value end
+	if cam and math.abs(cam.FieldOfView - FOV.Value) > 0.5 then cam.FieldOfView = FOV.Value end
 end)
-RunService:BindToRenderStep("SleepFOV", Enum.RenderPriority.Camera.Value - 1, function()
+RunService:BindToRenderStep("SleepFOV", Enum.RenderPriority.Camera.Value + 1, function()
 	if FOV.Mode ~= "Instant" or not FOV.Enabled then return end
 	local cam = Workspace.CurrentCamera
 	if cam and math.abs(cam.FieldOfView - FOV.Value) > 0.5 then cam.FieldOfView = FOV.Value end
@@ -779,6 +780,28 @@ function FOV:Reset()
 	local cam = Workspace.CurrentCamera
 	if cam and FOV.Original then cam.FieldOfView = FOV.Original end
 end
+
+--// camera spike filter: cancels 1-frame camera jumps (shoot/recoil glitch)
+local CamFix = { Enabled = true, Angle = 70, MouseLimit = 45, Spikes = 0 }
+SleepScript.CamFix = CamFix
+local camPrev
+RunService:BindToRenderStep("SleepCamFix", Enum.RenderPriority.Camera.Value + 2, function()
+	if not CamFix.Enabled then camPrev = nil return end
+	local cam = Workspace.CurrentCamera
+	if not cam then return end
+	local cf = cam.CFrame
+	if camPrev then
+		local dot = math.clamp(camPrev.LookVector:Dot(cf.LookVector), -1, 1)
+		local ang = math.deg(math.acos(dot))
+		local md = UserInputService:GetMouseDelta()
+		if ang > CamFix.Angle and md.Magnitude < CamFix.MouseLimit then
+			cam.CFrame = camPrev
+			cf = camPrev
+			CamFix.Spikes = CamFix.Spikes + 1
+		end
+	end
+	camPrev = cf
+end)
 
 --=====================================================================
 -- 8. ESP
@@ -790,12 +813,12 @@ local EspGui = New("ScreenGui", {
 SleepScript.Objects[#SleepScript.Objects + 1] = EspGui
 
 local ESP = {
-	Enabled = true,
+	Enabled = true,          -- module default == UI default (they must match)
 	Boxes = true, Names = true, Health = true, Distance = true, Weapon = true,
-	TeamCheck = false, UseTeamColor = true, MaxDistance = 2500,
-	Color = Color3.fromRGB(255, 255, 255),
+	TeamCheck = false, UseTeamColor = true, Chams = false,
+	MaxDistance = 2500, Color = Color3.fromRGB(255, 255, 255),
 	FillAlpha = 0.10, Thickness = 1.5,
-	Objects = {}, Debug = "0",
+	Objects = {}, Debug = "0", BoxMode = "2D",
 }
 SleepScript.ESP = ESP
 
@@ -845,7 +868,7 @@ end
 local boundsCache = {}
 local function getBounds(char, root)
 	local c = boundsCache[char]
-	if c and os.clock() - c.t < 0.4 then return c.minY, c.maxY, c.r end
+	if c and os.clock() - c.t < 0.5 then return c.minY, c.maxY, c.r end
 	local minY, maxY, maxR
 	local rx, ry, rz = root.Position.X, root.Position.Y, root.Position.Z
 	for _, d in ipairs(char:GetDescendants()) do
@@ -962,20 +985,14 @@ local function updateESP()
 	for plr, d in pairs(ESP.Objects) do
 		local char, hum, anchor = d.Character, d.Humanoid, d.Anchor
 		local valid = char and char.Parent and hum and hum.Parent and hum.Health > 0 and anchor and anchor.Parent
-		if not valid then
+		if not valid or not ESP.Enabled then
 			if d.Gui then d.Gui.Visible = false end
-			continue
-		end
-		local skip = ESP.TeamCheck and myTeam and plr.Team and plr.Team == myTeam
-		if skip or not ESP.Enabled then
-			if d.Gui then d.Gui.Visible = false end
-			if d.Highlight then d.Highlight.FillTransparency = 1 d.Highlight.OutlineTransparency = 1 end
 			if d.Box then d.Box.Visible = false end
 			continue
 		end
-
+		local skip = ESP.TeamCheck and myTeam and plr.Team and plr.Team == myTeam
 		local dist = (anchor.Position - myPos).Magnitude
-		if dist > ESP.MaxDistance then
+		if skip or dist > ESP.MaxDistance then
 			if d.Gui then d.Gui.Visible = false end
 			if d.Box then d.Box.Visible = false end
 			if d.Highlight then d.Highlight.FillTransparency = 1 d.Highlight.OutlineTransparency = 1 end
@@ -990,21 +1007,17 @@ local function updateESP()
 				local minY, maxY, r = getBounds(char, anchor)
 				local cx, cz = anchor.Position.X, anchor.Position.Z
 				local midY = (minY + maxY) / 2
-				local topW = Vector3.new(cx, maxY + 0.35, cz)
-				local botW = Vector3.new(cx, minY - 0.35, cz)
+				local t3 = cam:WorldToViewportPoint(Vector3.new(cx, maxY + 0.35, cz))
+				local b3 = cam:WorldToViewportPoint(Vector3.new(cx, minY - 0.35, cz))
 				local midW = Vector3.new(cx, midY, cz)
-				local t3 = cam:WorldToViewportPoint(topW)
-				local b3 = cam:WorldToViewportPoint(botW)
 				local r3 = cam:WorldToViewportPoint(midW + camRight * (r + 0.2))
 				local l3 = cam:WorldToViewportPoint(midW - camRight * (r + 0.2))
-
 				local x1 = math.min(l3.X, r3.X)
 				local x2 = math.max(l3.X, r3.X)
 				local y1 = math.min(t3.Y, b3.Y)
 				local y2 = math.max(t3.Y, b3.Y)
 				local w = math.max(x2 - x1, 8)
 				local h = math.max(y2 - y1, 10)
-
 				d.Gui.Visible = true
 				d.Gui.Position = UDim2.fromOffset(math.floor(x1), math.floor(y1))
 				d.Gui.Size = UDim2.fromOffset(math.floor(w), math.floor(h))
@@ -1014,13 +1027,11 @@ local function updateESP()
 				d.GuiFill.BackgroundTransparency = 1 - ESP.FillAlpha
 				d.GuiName.Visible = ESP.Names
 				d.GuiName.TextColor3 = col
-
 				local hp = math.clamp(hum.Health / math.max(hum.MaxHealth, 1), 0, 1)
 				d.GuiHealth.Parent.Visible = ESP.Health
 				d.GuiHealth.Size = UDim2.new(1, 0, hp, 0)
 				d.GuiHealth.Position = UDim2.new(0, 0, 1 - hp, 0)
 				d.GuiHealth.BackgroundColor3 = Color3.fromRGB(math.floor(255 * (1 - hp)), math.floor(255 * hp), 60)
-
 				local parts = {}
 				if ESP.Distance then parts[#parts + 1] = ("%dm"):format(math.floor(dist)) end
 				if ESP.Weapon then
@@ -1053,7 +1064,6 @@ local function updateESP()
 	end
 end
 ESP.Update = updateESP
-ESP.BoxMode = "2D"
 
 Conn(Players.PlayerRemoving, destroyESP)
 Conn(Players.PlayerAdded, function(p)
@@ -1243,7 +1253,6 @@ local function isViewModel(m)
 		or n:find("weapon") or n:find("fps") or n:find("tool")
 end
 
---// cached workspace scan (heavy part) -------------------------------
 local wsCache = { list = {}, t = 0 }
 local extCache = setmetatable({}, { __mode = "k" })
 local function workspaceList()
@@ -1353,15 +1362,15 @@ OnCameraChanged(function()
 end)
 
 --=====================================================================
--- 10. MOVEMENT
+-- 10. MOVEMENT (fast adjustable strafe)
 --=====================================================================
 local Move = {
 	Bhop = false, InfJump = false, HoldingSpace = false,
-	AirStrafe = true, StrafeAccel = 200, MaxSpeed = 90, AutoStrafe = false,
+	AirStrafe = true, StrafeAccel = 250, MaxSpeed = 120, AutoStrafe = false,
 	SpeedEnabled = false, WalkSpeed = 16,
 	JumpEnabled = false, JumpPower = 50,
 	Sprint = false, SprintKey = "LeftShift", SprintSpeed = 24, Sprinting = false,
-	Fly = false,
+	Fly = false, CurrentSpeed = 0,
 }
 SleepScript.Move = Move
 
@@ -1391,7 +1400,6 @@ Conn(UserInputService.InputEnded, function(i)
 end)
 
 local baseWalkSpeed = 16
-local lastAirHoriz = nil
 local function hookHumanoid()
 	local char = LocalPlayer.Character
 	local hum = char and char:FindFirstChildOfClass("Humanoid")
@@ -1401,13 +1409,7 @@ local function hookHumanoid()
 		if not Move.Bhop or not Move.HoldingSpace then return end
 		if new == Enum.HumanoidStateType.Landed then
 			local hrp = char:FindFirstChild("HumanoidRootPart")
-			if hrp then
-				if lastAirHoriz then
-					local v = getVel(hrp)
-					setVel(hrp, Vector3.new(lastAirHoriz.X, v.Y, lastAirHoriz.Z))
-				end
-				if isGrounded(hum, hrp) then doJump(hum) end
-			end
+			if hrp and isGrounded(hum, hrp) then doJump(hum) end
 		end
 	end)
 end
@@ -1425,7 +1427,7 @@ Conn(RunService.Heartbeat, function(dt)
 	local vel = getVel(hrp)
 	local horiz = Vector3.new(vel.X, 0, vel.Z)
 	local speed = horiz.Magnitude
-	lastAirHoriz = airborne and horiz or nil
+	Move.CurrentSpeed = speed
 
 	if Move.Bhop and holding and not airborne and os.clock() >= bhopCD then
 		doJump(hum)
@@ -1449,8 +1451,7 @@ Conn(RunService.Heartbeat, function(dt)
 				wish = Vector3.new(wish.X, 0, wish.Z).Unit
 				local room = Move.MaxSpeed - speed
 				if room > 0 then
-					local add = math.min(Move.StrafeAccel * dt, room)
-					setVel(hrp, vel + wish * add)
+					setVel(hrp, vel + wish * math.min(Move.StrafeAccel * dt, room))
 				end
 			end
 		end
@@ -1876,9 +1877,8 @@ local Tabs = {
 do -- VISUALS
 	local t = Tabs.Visuals.Content
 	Section(t, "ESP")
-	local dbg = Label(t, "targets: 0   (if 0 — напиши, разберём)")
-	local esdToggle
-	esdToggle = Toggle(t, { Text = "Enable ESP", Default = true, Callback = function(v)
+	local dbg = Label(t, "targets: 0")
+	Toggle(t, { Text = "Enable ESP", Default = true, Callback = function(v)
 		ESP.Enabled = v
 		if v then refreshESP() else for plr in pairs(ESP.Objects) do destroyESP(plr) end end
 	end })
@@ -1896,13 +1896,13 @@ do -- VISUALS
 	Dropdown(t, { Text = "Render method", Options = { "2D GUI", "3D Adornment" }, Default = "2D GUI",
 		Callback = function(v) ESP.BoxMode = v == "3D Adornment" and "3D" or "2D" end })
 	Button(t, { Text = "Refresh targets", Callback = function() refreshESP() Notify("ESP", "tracked: " .. ESP.Debug, 2) end })
-	Button(t, { Text = "ESP self-test (red box, 3s)", Callback = function()
+	Button(t, { Text = "ESP self-test (3s)", Callback = function()
 		local g = New("Frame", {
 			Size = UDim2.fromOffset(160, 260), Position = UDim2.new(0.5, -80, 0.5, -130),
 			BackgroundTransparency = 1, ZIndex = 50,
 		}, EspGui)
 		Stroke(g, Color3.fromRGB(255, 60, 60), 3, 0)
-		local lbl = New("TextLabel", {
+		New("TextLabel", {
 			Size = UDim2.new(1, 0, 0, 20), Position = UDim2.new(0.5, 0, 0, -24),
 			AnchorPoint = Vector2.new(0.5, 1), BackgroundTransparency = 1,
 			Font = Enum.Font.GothamBold, TextSize = 14, TextColor3 = Color3.fromRGB(255, 60, 60),
@@ -1911,8 +1911,13 @@ do -- VISUALS
 		task.delay(3, function() g:Destroy() end)
 	end })
 
-	Section(t, "Field Of View")
-	Toggle(t, { Text = "Custom FOV", Default = true, Callback = function(v)
+	Section(t, "Camera")
+	Toggle(t, { Text = "Camera Spike Filter (anti 180-flip)", Default = true, Callback = function(v)
+		CamFix.Enabled = v
+		if not v then camPrev = nil end
+	end })
+	Slider(t, { Text = "Filter angle threshold", Min = 40, Max = 120, Default = 70, Callback = function(v) CamFix.Angle = v end })
+	Toggle(t, { Text = "Custom FOV", Default = false, Callback = function(v)
 		if v then
 			local cam = Workspace.CurrentCamera
 			if cam and not FOV.Original then FOV.Original = cam.FieldOfView end
@@ -1920,10 +1925,9 @@ do -- VISUALS
 		FOV.Enabled = v
 		if not v then FOV:Reset() end
 	end })
-	Dropdown(t, { Text = "Apply Mode", Options = { "Safe", "Instant", "Off" }, Default = "Safe",
-		Callback = function(v) FOV.Mode = v end })
 	Slider(t, { Text = "FOV Value", Min = 40, Max = 140, Default = 100, Callback = function(v) FOV.Value = v end })
 	Button(t, { Text = "Reset FOV", Callback = function() FOV:Reset() end })
+	Label(t, "Если камера дёргается — выключи Custom FOV и проверь. Фильтр рывков можно усилить/ослабить слайдером.")
 
 	Section(t, "Custom Sky")
 	local skyStatus = Label(t, "sky: game default")
@@ -1979,13 +1983,15 @@ do -- SKIN
 		scanForParts()
 		restyleAll()
 		updStatus()
+		if Skin.UpdateList then Skin.UpdateList() end
 		Notify("Skin", w .. " -> " .. s, 3)
 	end })
-	Button(t, { Text = "Remove skin from this weapon", Callback = function()
+	Button(t, { Text = "Remove skin", Callback = function()
 		local w = weaponDd.Value
 		Skin.Assignments[(w == "Auto (everything)") and "*" or w] = nil
 		clearAll()
 		restyleAll()
+		if Skin.UpdateList then Skin.UpdateList() end
 		Notify("Skin", "removed: " .. w, 2)
 	end })
 	Button(t, { Text = "Rescan game skins", Callback = function()
@@ -1994,11 +2000,11 @@ do -- SKIN
 		updStatus()
 		Notify("Skin", "found " .. n .. " skins", 3)
 	end })
-	Section(t, "Assignments")
+	Section(t, "Current assignments")
 	local listLbl = Label(t, "none")
 	Skin.UpdateList = function()
 		local p = {}
-		for k, v in pairs(Skin.Assignments) do p[#p + 1] = (k == "*" and "ALL" or k) .. " -> " .. v end
+		for k, v in pairs(Skin.Assignments) do p[#p + 1] = (k == "*" and "ALL" or k) .. "  ->  " .. v end
 		table.sort(p)
 		listLbl.Text = #p > 0 and table.concat(p, "\n") or "none"
 	end
@@ -2009,25 +2015,27 @@ end
 do -- MOVEMENT
 	local t = Tabs.Movement.Content
 	Section(t, "Bunny Hop + Strafe")
+	local speedLbl = Label(t, "current speed: 0")
 	Toggle(t, { Text = "Auto BunnyHop (hold Space)", Default = false, Callback = function(v) Move.Bhop = v end })
 	Toggle(t, { Text = "Air Strafe (builds speed)", Default = true, Callback = function(v) Move.AirStrafe = v end })
-	Slider(t, { Text = "Strafe Acceleration", Min = 20, Max = 600, Default = 200, Callback = function(v) Move.StrafeAccel = v end })
-	Slider(t, { Text = "Max Speed", Min = 20, Max = 300, Default = 90, Callback = function(v) Move.MaxSpeed = v end })
-	Button(t, { Text = "Preset: Normal (accel 80 / max 45)", Callback = function()
+	Slider(t, { Text = "Strafe Acceleration", Min = 20, Max = 800, Default = 250, Callback = function(v) Move.StrafeAccel = v end })
+	Slider(t, { Text = "Max Speed", Min = 20, Max = 400, Default = 120, Callback = function(v) Move.MaxSpeed = v end })
+	Button(t, { Text = "Preset: Normal  (accel 80 / max 45)", Callback = function()
 		Move.StrafeAccel, Move.MaxSpeed = 80, 45
-		Notify("Strafe", "normal preset", 2)
+		Notify("Strafe", "normal", 2)
 	end })
-	Button(t, { Text = "Preset: Fast (accel 200 / max 90)", Callback = function()
-		Move.StrafeAccel, Move.MaxSpeed = 200, 90
-		Notify("Strafe", "fast preset", 2)
+	Button(t, { Text = "Preset: Fast  (accel 250 / max 120)", Callback = function()
+		Move.StrafeAccel, Move.MaxSpeed = 250, 120
+		Notify("Strafe", "fast", 2)
 	end })
-	Button(t, { Text = "Preset: Insane (accel 450 / max 180)", Callback = function()
-		Move.StrafeAccel, Move.MaxSpeed = 450, 180
-		Notify("Strafe", "insane preset", 2)
+	Button(t, { Text = "Preset: Insane  (accel 600 / max 250)", Callback = function()
+		Move.StrafeAccel, Move.MaxSpeed = 600, 250
+		Notify("Strafe", "insane", 2)
 	end })
 	Toggle(t, { Text = "Auto Strafe (no A/D needed)", Default = false, Callback = function(v) Move.AutoStrafe = v end })
 	Toggle(t, { Text = "Infinite Jump", Default = false, Callback = function(v) Move.InfJump = v end })
-	Label(t, "Держи Space и стрейфь A/D в воздухе — скорость наберётся почти сразу. Больше accel = быстрее набор.")
+	Label(t, "Держи Space и стрейфь A/D в воздухе — разгон идёт почти мгновенно. Strafe Acceleration = как быстро, Max Speed = до какой скорости.")
+	Skin.SpeedLabel = speedLbl
 	Section(t, "Speed")
 	Toggle(t, { Text = "Custom WalkSpeed", Default = false, Callback = function(v) Move.SpeedEnabled = v end })
 	Slider(t, { Text = "WalkSpeed", Min = 8, Max = 200, Default = 16, Callback = function(v) Move.WalkSpeed = v end })
@@ -2076,7 +2084,7 @@ do -- MISC
 	Toggle(t, { Text = "Anti Void", Default = false, Callback = function(v) Bypass.AntiVoid = v end })
 	Toggle(t, { Text = "Anti AFK", Default = true, Callback = function(v) Bypass.AntiAfk = v end })
 	Section(t, "Diagnostics")
-	Button(t, { Text = "Print camera / viewmodel tree", Callback = function()
+	Button(t, { Text = "Print info (console)", Callback = function()
 		print("===== SleepScript Info =====")
 		print("Place:", game.PlaceId, game.PlaceVersion)
 		local cam = Workspace.CurrentCamera
@@ -2086,7 +2094,7 @@ do -- MISC
 		for _, p in ipairs(Players:GetPlayers()) do
 			print("  ", p.Name, "char:", p.Character and p.Character:GetFullName() or "nil")
 		end
-		print("ESP tracked:", ESP.Debug, "| Skin parts:", Skin.Parts)
+		print("ESP tracked:", ESP.Debug, "| Skin parts:", Skin.Parts, "| Camera spikes:", CamFix.Spikes)
 	end })
 end
 
@@ -2099,4 +2107,89 @@ do -- SETTINGS
 	Slider(t, { Text = "UI Scale", Min = 0.7, Max = 1.4, Default = 1, Decimals = 2, Callback = function(v) Window.Scale.Scale = v end })
 	Button(t, { Text = "Unload Script", Callback = function() SleepScript:Unload() end })
 	Section(t, "About")
-	Label(t, "SleepScript v" .. SleepScript.Version ..
+	Label(t, "SleepScript v" .. SleepScript.Version .. " for BloxStrike.\nRightShift — menu, F4 — overlay.")
+end
+
+Window:Select(Tabs.Visuals)
+
+--=====================================================================
+-- 16. LOOPS
+--=====================================================================
+local espTimer, skinTimer, enforceTimer, uiTimer = 0, 0, 0, 0
+
+-- ESP + skin in Heartbeat (never delays the camera/render)
+Conn(RunService.Heartbeat, function(dt)
+	updateESP()
+
+	espTimer = espTimer + dt
+	if espTimer >= 1.5 then
+		espTimer = 0
+		refreshESP()
+		if ESP.Debug then
+			-- update the label only if it exists
+		end
+	end
+
+	skinTimer = skinTimer + dt
+	if skinTimer >= 0.3 then
+		skinTimer = 0
+		if Skin.Enabled then scanForParts() end
+	end
+
+	enforceTimer = enforceTimer + dt
+	if enforceTimer >= 0.15 then
+		enforceTimer = 0
+		enforceDesired()
+	end
+
+	uiTimer = uiTimer + dt
+	if uiTimer >= 0.25 then
+		uiTimer = 0
+		if Skin.SpeedLabel then
+			Skin.SpeedLabel.Text = string.format("current speed: %d", math.floor(Move.CurrentSpeed))
+		end
+	end
+end)
+
+Conn(LocalPlayer.CharacterAdded, function()
+	task.wait(1)
+	hookHumanoid()
+	Skin.Desired = {}
+	if Skin.Enabled then scanForParts() end
+	if Vis.Aura then setAura(true) end
+end)
+task.spawn(function()
+	task.wait(2)
+	hookHumanoid()
+end)
+
+--=====================================================================
+-- 17. UNLOAD
+--=====================================================================
+function SleepScript:Unload()
+	self.Unloaded = true
+	for _, c in ipairs(self.Connections) do pcall(function() c:Disconnect() end) end
+	for _, o in ipairs(self.Objects) do pcall(function() o:Destroy() end) end
+	for plr in pairs(ESP.Objects) do pcall(function() destroyESP(plr) end) end
+	pcall(function() RunService:UnbindFromRenderStep("SleepFOV") end)
+	pcall(function() RunService:UnbindFromRenderStep("SleepCamFix") end)
+	pcall(function() restorePerf() end)
+	pcall(function() stopFly() end)
+	pcall(function() clearAll() end)
+	pcall(function() Sky.Restore() end)
+	pcall(function() setFullbright(false) end)
+	pcall(function() if auraEmitter then auraEmitter:Destroy() end end)
+	pcall(function() FOV:Reset() end)
+	_G.SleepScript = nil
+	Notify("SleepScript", "unloaded", 3)
+	print("[SleepScript] unloaded")
+end
+
+--=====================================================================
+-- 18. BOOT
+--=====================================================================
+Window:Toggle(true)
+task.wait(0.3)
+refreshESP()          -- <-- реальная инициализация ESP (модуль уже Enabled)
+Notify("SleepScript v" .. SleepScript.Version, "RightShift — menu  •  F4 — overlay", 4)
+print("[SleepScript] v" .. SleepScript.Version .. " loaded | ESP:", ESP.Debug, "targets")
