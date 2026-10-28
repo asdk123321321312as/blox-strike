@@ -1,9 +1,7 @@
 --[[=========================================================
-    KONTRA  •  Venice Script  •  v2 (fix)
-    Игра:     https://www.roblox.com/games/87204735676240
-    Исправлено: ESP (не заполнялась таблица игроков),
-    аимбот (приоритет кадра выше камеры игры),
-    FOV (поздний приоритет + защита от ADS + диагностика)
+    KONTRA  •  Venice Script  •  v3
+    Изменения: горизонтальное меню (полосы), FOV с режимами
+    "абсолютный" / "множитель" / "как в игре" (обход кика Krampus)
 =========================================================--]]
 
 if getgenv().KontraVenice_Unload then pcall(getgenv().KontraVenice_Unload) end
@@ -40,7 +38,8 @@ local Config = {
     SpeedOn = true, Speed = 24, JumpOn = true, JumpPower = 55,
     InfJump = true, Fullbright = false, NoClip = false,
     Fly = false, FlySpeed = 55, Hitbox = false, HitboxSize = 9,
-    FovOn = false, FovSkipADS = true, CameraFOV = 90,
+
+    FovOn = false, FovMode = "Abs", FovValue = 0, FovMult = 1.2, FovSkipADS = false,
 }
 
 --===== ХЕЛПЕРЫ =====
@@ -68,7 +67,7 @@ local function visible(cam, part)
     return workspace:Raycast(origin, part.Position - origin, rayParams) == nil
 end
 
---===== РИСОВАНИЕ (Drawing / Frame) =====
+--===== РИСОВАНИЕ =====
 local DrawingLib = genv.Drawing
 local HAS_DRAWING = false
 if DrawingLib then
@@ -80,8 +79,7 @@ end
 local espGui
 if not HAS_DRAWING then
     espGui = Instance.new("ScreenGui")
-    espGui.Name = "KontraVeniceESP"
-    espGui.ResetOnSpawn, espGui.IgnoreGuiInset = false, true
+    espGui.Name, espGui.ResetOnSpawn, espGui.IgnoreGuiInset = "KontraVeniceESP", false, true
     espGui.Parent = guiParent()
 end
 
@@ -168,7 +166,7 @@ local function newCircle(col)
                  f.BorderColor3, f.Visible = c or col, vis end }
 end
 
---===== ESP (ТЕПЕРЬ ТАБЛИЦА ЗАПОЛНЯЕТСЯ) =====
+--===== ESP =====
 local GREEN = Color3.fromRGB(0, 255, 140)
 local RED = Color3.fromRGB(255, 80, 80)
 local espData = {}
@@ -183,7 +181,6 @@ local function getESP(plr)
     end
     return o
 end
-
 local function dropESP(plr)
     local o = espData[plr]
     if o then
@@ -191,7 +188,6 @@ local function dropESP(plr)
         espData[plr] = nil
     end
 end
-
 bind(Players.PlayerRemoving, dropESP)
 
 --===== АИМБОТ =====
@@ -233,8 +229,7 @@ local mousemoverel = genv.mousemoverel
 
 --===== МИСК =====
 local fbApplied, fbOld = false, {}
-local noclipSet = {}
-local hitboxOrig = {}
+local noclipSet, hitboxOrig = {}, {}
 
 local function setFullbright(on)
     if on and not fbApplied then
@@ -266,9 +261,7 @@ local function applyHitbox()
 end
 
 bind(LP.CharacterAdded, function()
-    task.wait(0.4)
-    hitboxOrig = {}
-    applyHitbox()
+    task.wait(0.4); hitboxOrig = {}; applyHitbox()
 end)
 
 bind(UserInputService.JumpRequest, function()
@@ -313,8 +306,9 @@ bind(RunService.Heartbeat, function()
     setFullbright(Config.Fullbright)
 end)
 
---===== FOV: базовый FOV игры для детекта ADS =====
-local baseFov = nil
+--===== FOV: базовый FOV игры + запись без конфликта с античитом =====
+local baseFov, lastFovSet = nil, nil
+
 task.spawn(function()
     while true do
         task.wait(0.5)
@@ -323,16 +317,36 @@ task.spawn(function()
     end
 end)
 
---===== ГЛАВНЫЙ ЦИКЛ (поздний приоритет = после камеры игры) =====
+local function applyFOV(cam)
+    if not Config.FovOn then lastFovSet = nil; return end
+    local cur = cam.FieldOfView
+    -- если значение не равно тому, что мы ставили, значит игру переписал FOV -> берём его как базу
+    local gameWrote = not (lastFovSet and math.abs(cur - lastFovSet) < 0.01)
+    local gameFov = gameWrote and cur or (lastFovSet / math.max(Config.FovMult, 0.01))
+
+    local target
+    if Config.FovMode == "Mult" then
+        target = gameFov * Config.FovMult
+    elseif Config.FovValue == 0 then
+        target = baseFov or gameFov          -- "как в игре" (тест античита)
+    else
+        target = Config.FovValue
+    end
+    if Config.FovSkipADS and baseFov and gameFov < baseFov - 6 then target = gameFov end
+
+    if math.abs(cur - target) > 0.01 then cam.FieldOfView = target end
+    lastFovSet = cam.FieldOfView
+end
+
+--===== ГЛАВНЫЙ ЦИКЛ =====
 local fovCircle = newCircle(Color3.fromRGB(255,255,255))
 local aimName, espCount, target = "-", 0, nil
 
-local function onRender(dt)
+local function onRender()
     local cam = getCam()
     if not cam then return end
     local center = Vector2.new(cam.ViewportSize.X/2, cam.ViewportSize.Y/2)
 
-    -- АИМБОТ
     target = nil
     if Config.Aimbot and (not Config.AimOnHold or holding) then
         target = findTarget(cam)
@@ -345,9 +359,8 @@ local function onRender(dt)
             if Config.AimMode == "Mouse" and mousemoverel then
                 local sp = cam:WorldToViewportPoint(part.Position)
                 if sp.Z > 0 then
-                    pcall(mousemoverel,
-                        (sp.X - center.X) * Config.AimMouseSens,
-                        (sp.Y - center.Y) * Config.AimMouseSens)
+                    pcall(mousemoverel, (sp.X - center.X) * Config.AimMouseSens,
+                                       (sp.Y - center.Y) * Config.AimMouseSens)
                 end
             else
                 local desired = CFrame.new(cam.CFrame.Position, part.Position)
@@ -356,23 +369,15 @@ local function onRender(dt)
         end
     end
 
-    -- FOV (аккуратно: не мешаем ADS, иначе античит игры нервничает)
-    if Config.FovOn then
-        local skip = Config.FovSkipADS and baseFov and cam.FieldOfView < baseFov - 6
-        if not skip and math.abs(cam.FieldOfView - Config.CameraFOV) > 0.05 then
-            cam.FieldOfView = Config.CameraFOV
-        end
-    end
+    applyFOV(cam)
 
-    -- КРУГ FOV
     fovCircle.set(center.X, center.Y, Config.FOVRadius,
         Config.Aimbot and Config.ShowFOV, target and RED or Color3.fromRGB(255,255,255))
 
-    -- ESP
     local myRoot = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
     espCount = 0
     for _, plr in ipairs(Players:GetPlayers()) do
-        local o = getESP(plr)                       -- <<< вот этот вызов и был пропущен
+        local o = getESP(plr)
         local char = plr.Character
         local hum = char and char:FindFirstChildOfClass("Humanoid")
         local hrp = char and char:FindFirstChild("HumanoidRootPart")
@@ -400,12 +405,11 @@ local function onRender(dt)
                     local w = h * 0.55
                     local x, y = top.X - w/2, top.Y
                     local col = (target == plr) and RED or GREEN
-
                     if Config.Boxes then o.box.set(x, y, w, h, true, col) else o.box.set(0,0,0,0,false) end
-                    if Config.Names then o.name.set(top.X, y - 16, plr.Name, true, Color3.new(1,1,1)) else o.name.set(0,0,"",false) end
-                    if Config.Health then o.hp.set(top.X, y + h + 2, math.floor(hum.Health) .. " HP", true, Color3.fromRGB(120,255,120)) else o.hp.set(0,0,"",false) end
-                    if Config.Distance then o.dist.set(top.X, y + h + 16, math.floor(dist) .. " м", true, Color3.fromRGB(205,205,205)) else o.dist.set(0,0,"",false) end
-                    if Config.Tracers then o.tracer.set(center.X, cam.ViewportSize.Y, top.X, y + h, true, col) else o.tracer.set(0,0,0,0,false) end
+                    if Config.Names then o.name.set(top.X, y-16, plr.Name, true, Color3.new(1,1,1)) else o.name.set(0,0,"",false) end
+                    if Config.Health then o.hp.set(top.X, y+h+2, math.floor(hum.Health).." HP", true, Color3.fromRGB(120,255,120)) else o.hp.set(0,0,"",false) end
+                    if Config.Distance then o.dist.set(top.X, y+h+16, math.floor(dist).." м", true, Color3.fromRGB(205,205,205)) else o.dist.set(0,0,"",false) end
+                    if Config.Tracers then o.tracer.set(center.X, cam.ViewportSize.Y, top.X, y+h, true, col) else o.tracer.set(0,0,0,0,false) end
                 end
             end
         end
@@ -414,163 +418,190 @@ end
 
 RunService:BindToRenderStep("KontraVenice", Enum.RenderPriority.Last.Value - 1, onRender)
 
---===== МЕНЮ =====
+--===== ГОРИЗОНТАЛЬНОЕ МЕНЮ =====
+local W, ROWH = 720, 26
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name, ScreenGui.ResetOnSpawn, ScreenGui.IgnoreGuiInset = "KontraVeniceMenu", false, true
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 ScreenGui.Parent = guiParent()
 
 local Panel = Instance.new("Frame")
-Panel.Size, Panel.Position = UDim2.fromOffset(248, 402), UDim2.new(0, 14, 0.12, 0)
+Panel.AnchorPoint = Vector2.new(0.5, 0)
+Panel.Position = UDim2.new(0.5, 0, 0, 10)
+Panel.Size = UDim2.fromOffset(W, 30 + 5 * (ROWH + 4) + 8)
 Panel.BackgroundColor3, Panel.BackgroundTransparency, Panel.BorderSizePixel = Color3.fromRGB(17,17,21), 0.08, 0
 Panel.Active = true
 Panel.Parent = ScreenGui
 Instance.new("UICorner", Panel).CornerRadius = UDim.new(0, 10)
 
+local Scale = Instance.new("UIScale", Panel)
+
 local Title = Instance.new("TextLabel")
-Title.Size, Title.BackgroundTransparency = UDim2.new(1, -46, 0, 30), 1
-Title.Text, Title.TextColor3 = "KONTRA  •  VENICE v2", Color3.fromRGB(0,255,140)
+Title.Size, Title.Position, Title.BackgroundTransparency = UDim2.fromOffset(180, 30), UDim2.fromOffset(10, 0), 1
+Title.Text, Title.TextColor3 = "KONTRA • VENICE v3", Color3.fromRGB(0,255,140)
 Title.Font, Title.TextSize, Title.Active = Enum.Font.GothamBold, 14, true
+Title.TextXAlignment = Enum.TextXAlignment.Left
 Title.Parent = Panel
 
+local Diag = Instance.new("TextLabel")
+Diag.Size, Diag.Position, Diag.BackgroundTransparency = UDim2.new(1, -260, 1, 0), UDim2.fromOffset(200, 0), 1
+Diag.TextColor3, Diag.Font, Diag.TextSize = Color3.fromRGB(150,255,195), Enum.Font.Code, 11
+Diag.TextXAlignment = Enum.TextXAlignment.Left
+Diag.Text = "запуск..."
+Diag.Parent = Panel
+
 local Min = Instance.new("TextButton")
-Min.Size, Min.Position = UDim2.fromOffset(30, 22), UDim2.new(1, -36, 0, 4)
+Min.Size, Min.Position = UDim2.fromOffset(30, 22), UDim2.new(1, -74, 0, 4)
 Min.BackgroundColor3, Min.BorderSizePixel = Color3.fromRGB(35,35,45), 0
 Min.TextColor3, Min.Font, Min.TextSize, Min.Text = Color3.new(1,1,1), Enum.Font.GothamBold, 13, "_"
 Min.Parent = Panel
 Instance.new("UICorner", Min).CornerRadius = UDim.new(0, 6)
 
-local Content = Instance.new("ScrollingFrame")
-Content.Size, Content.Position = UDim2.new(1, -10, 1, -38), UDim2.fromOffset(5, 34)
-Content.BackgroundTransparency, Content.BorderSizePixel = 1, 0
-Content.ScrollBarThickness = 3
-Content.CanvasSize = UDim2.new(0,0,0,0)
-Content.AutomaticCanvasSize = Enum.AutomaticSize.Y
+local Kill = Instance.new("TextButton")
+Kill.Size, Kill.Position = UDim2.fromOffset(32, 22), UDim2.new(1, -38, 0, 4)
+Kill.BackgroundColor3, Kill.BorderSizePixel = Color3.fromRGB(150,50,50), 0
+Kill.TextColor3, Kill.Font, Kill.TextSize, Kill.Text = Color3.new(1,1,1), Enum.Font.GothamBold, 11, "X"
+Kill.Parent = Panel
+Instance.new("UICorner", Kill).CornerRadius = UDim.new(0, 6)
+
+local Content = Instance.new("Frame")
+Content.Size, Content.Position, Content.BackgroundTransparency = UDim2.new(1, -16, 1, -38), UDim2.fromOffset(8, 34), 1
 Content.Parent = Panel
+local VLayout = Instance.new("UIListLayout")
+VLayout.Padding, VLayout.SortOrder = UDim.new(0, 4), Enum.SortOrder.LayoutOrder
+VLayout.Parent = Content
 
-local Layout = Instance.new("UIListLayout")
-Layout.Padding, Layout.SortOrder = UDim.new(0, 4), Enum.SortOrder.LayoutOrder
-Layout.Parent = Content
-
-local Diag = Instance.new("TextLabel")
-Diag.Size, Diag.BackgroundColor3, Diag.BorderSizePixel = UDim2.new(1,-8,0,44), Color3.fromRGB(22,22,28), 0
-Diag.TextColor3, Diag.Font, Diag.TextSize = Color3.fromRGB(150,255,195), Enum.Font.Code, 11
-Diag.TextXAlignment, Diag.TextYAlignment, Diag.TextWrapped = Enum.TextXAlignment.Left, Enum.TextYAlignment.Top, true
-Diag.Text = "запуск..."
-Diag.Parent = Content
-
-task.spawn(function()
-    while Diag.Parent do
-        local cam = getCam()
-        Diag.Text = string.format(
-            "Drawing: %s | игроков: %d\nESP рисует: %d | цель аима: %s\nFOV игры: %s | мой FOV: %s",
-            HAS_DRAWING and "да" or "нет(Frame)", #Players:GetPlayers(), espCount, aimName,
-            cam and math.floor(cam.FieldOfView) or "?", Config.FovOn and tostring(Config.CameraFOV) or "выкл")
-        task.wait(0.25)
-    end
-end)
-
-local function addHeader(text)
-    local l = Instance.new("TextLabel")
-    l.Size, l.BackgroundTransparency = UDim2.new(1,-8,0,20), 1
-    l.Text, l.TextColor3 = text, Color3.fromRGB(140,140,160)
-    l.Font, l.TextSize, l.TextXAlignment = Enum.Font.GothamBold, 11, Enum.TextXAlignment.Left
-    l.Parent = Content
-end
-
-local function addRow(text)
+local function addRow(headerText)
     local row = Instance.new("Frame")
-    row.Size, row.BackgroundColor3, row.BorderSizePixel = UDim2.new(1,-8,0,26), Color3.fromRGB(27,27,34), 0
+    row.Size, row.BackgroundTransparency = UDim2.new(1, 0, 0, ROWH), 1
     row.Parent = Content
-    Instance.new("UICorner", row).CornerRadius = UDim.new(0, 6)
-
-    local lbl = Instance.new("TextLabel")
-    lbl.Size, lbl.Position, lbl.BackgroundTransparency = UDim2.new(1,-68,1,0), UDim2.fromOffset(8,0), 1
-    lbl.Text, lbl.TextColor3 = text, Color3.fromRGB(232,232,238)
-    lbl.Font, lbl.TextSize, lbl.TextXAlignment = Enum.Font.GothamMedium, 12, Enum.TextXAlignment.Left
-    lbl.Parent = row
-
-    local btn = Instance.new("TextButton")
-    btn.Size, btn.Position = UDim2.fromOffset(58,20), UDim2.new(1,-64,0.5,-10)
-    btn.BackgroundColor3, btn.BorderSizePixel = Color3.fromRGB(45,45,55), 0
-    btn.Font, btn.TextSize, btn.TextColor3, btn.Text = Enum.Font.GothamBold, 11, Color3.new(1,1,1), "OFF"
-    btn.Parent = row
-    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 5)
-    return btn
+    local lay = Instance.new("UIListLayout")
+    lay.FillDirection, lay.Padding = Enum.FillDirection.Horizontal, UDim.new(0, 4)
+    lay.Parent = row
+    local hl = Instance.new("TextLabel")
+    hl.Size, hl.BackgroundTransparency = UDim2.fromOffset(72, ROWH), 1
+    hl.Text, hl.TextColor3 = headerText, Color3.fromRGB(130,130,155)
+    hl.Font, hl.TextSize, hl.TextXAlignment = Enum.Font.GothamBold, 10, Enum.TextXAlignment.Left
+    hl.Parent = row
+    return row
 end
 
-local function addToggle(text, key, onChange)
-    local btn = addRow(text)
+local function addBtn(row, text, width)
+    local b = Instance.new("TextButton")
+    b.Size = UDim2.fromOffset(width or 76, ROWH)
+    b.BackgroundColor3, b.BorderSizePixel = Color3.fromRGB(45,45,55), 0
+    b.Font, b.TextSize, b.TextColor3, b.Text = Enum.Font.GothamMedium, 11, Color3.new(1,1,1), text
+    b.TextTruncate = Enum.TextTruncate.AtEnd
+    b.AutoButtonColor = true
+    b.Parent = row
+    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
+    return b
+end
+
+local function addToggle(row, label, key, onChange)
+    local b = addBtn(row, label)
     local function refresh()
         local v = Config[key]
-        btn.Text = v and "ON" or "OFF"
-        btn.BackgroundColor3 = v and Color3.fromRGB(0,150,90) or Color3.fromRGB(45,45,55)
+        b.Text = label .. (v and ": ON" or ": OFF")
+        b.BackgroundColor3 = v and Color3.fromRGB(0,145,85) or Color3.fromRGB(45,45,55)
     end
-    btn.MouseButton1Click:Connect(function()
+    b.MouseButton1Click:Connect(function()
         Config[key] = not Config[key]; refresh()
         if onChange then onChange(Config[key]) end
     end)
     refresh()
 end
 
-local function addCycle(text, key, values, fmt, onChange)
-    local btn = addRow(text)
+local function addCycle(row, label, key, values, fmt, onChange)
+    local b = addBtn(row, label)
     local idx = 1
     for i, v in ipairs(values) do if v == Config[key] then idx = i end end
     local function refresh()
         local v = values[idx]; Config[key] = v
-        btn.Text = fmt and fmt(v) or tostring(v)
-        btn.BackgroundColor3 = Color3.fromRGB(58,58,78)
+        b.Text = label .. ": " .. (fmt and fmt(v) or tostring(v))
+        b.BackgroundColor3 = Color3.fromRGB(58,58,82)
         if onChange then onChange(v) end
     end
-    btn.MouseButton1Click:Connect(function() idx = idx % #values + 1; refresh() end)
+    b.MouseButton1Click:Connect(function() idx = idx % #values + 1; refresh() end)
     refresh()
 end
 
-addHeader("ВИЗУАЛЫ")
-addToggle("ESP", "ESP")
-addToggle("Боксы", "Boxes")
-addToggle("Ники", "Names")
-addToggle("HP", "Health")
-addToggle("Дистанция", "Distance")
-addToggle("Трассеры", "Tracers")
-addToggle("Проверка команды", "TeamCheck")
-addCycle("Лимит дистанции", "ESPMaxDist", {300,600,1000,2000,5000}, function(v) return v .. "м" end)
+local function addAction(row, label, fn)
+    local b = addBtn(row, label)
+    b.BackgroundColor3 = Color3.fromRGB(90,60,140)
+    b.MouseButton1Click:Connect(fn)
+end
 
-addHeader("АИМБОТ")
-addToggle("Аимбот", "Aimbot")
-addToggle("Круг FOV", "ShowFOV")
-addCycle("Часть", "AimPart", {"Head","HumanoidRootPart"}, function(v) return v=="Head" and "Голова" or "Корпус" end)
-addCycle("FOV радиус", "FOVRadius", {60,90,140,200,260})
-addCycle("Плавность", "AimSmooth", {0.1,0.2,0.3,0.5,0.8,1}, function(v) return tostring(v) end)
-addToggle("Только ПКМ (ПК)", "AimOnHold")
-addToggle("Только видимые", "WallCheck")
-addCycle("Способ", "AimMode", {"Camera","Mouse"}, function(v) return v=="Camera" and "Камера" or "Мышь" end)
-addCycle("Чувств. мыши", "AimMouseSens", {0.3,0.5,0.8,1.2}, function(v) return tostring(v) end)
+-- ПОЛОСА 1: ВИЗУАЛЫ
+local r1 = addRow("ВИЗУАЛЫ")
+addToggle(r1, "ESP", "ESP")
+addToggle(r1, "Боксы", "Boxes")
+addToggle(r1, "Ники", "Names")
+addToggle(r1, "HP", "Health")
+addToggle(r1, "Дист", "Distance")
+addToggle(r1, "Трасс", "Tracers")
+addToggle(r1, "Команда", "TeamCheck")
+addCycle(r1, "Лимит", "ESPMaxDist", {300,600,1000,2000,5000}, function(v) return v.."м" end)
 
-addHeader("FOV КАМЕРЫ (кикает — выключи)")
-addToggle("Менять FOV", "FovOn")
-addToggle("Не менять в прицеле", "FovSkipADS")
-addCycle("Значение FOV", "CameraFOV", {70,80,90,100,110})
+-- ПОЛОСА 2: АИМБОТ
+local r2 = addRow("АИМБОТ")
+addToggle(r2, "Аим", "Aimbot")
+addToggle(r2, "Круг", "ShowFOV")
+addCycle(r2, "Часть", "AimPart", {"Head","HumanoidRootPart"}, function(v) return v=="Head" and "Голова" or "Корпус" end)
+addCycle(r2, "Радиус", "FOVRadius", {60,90,140,200,260})
+addCycle(r2, "Плавн", "AimSmooth", {0.1,0.2,0.3,0.5,0.8,1}, function(v) return tostring(v) end)
+addToggle(r2, "ПКМ", "AimOnHold")
+addToggle(r2, "Стены", "WallCheck")
+addCycle(r2, "Способ", "AimMode", {"Camera","Mouse"}, function(v) return v=="Camera" and "Камера" or "Мышь" end)
 
-addHeader("МИСК")
-addToggle("Speed", "SpeedOn")
-addCycle("Значение Speed", "Speed", {16,22,28,36,50})
-addToggle("Jump Power", "JumpOn")
-addCycle("Значение Jump", "JumpPower", {50,75,100,150})
-addToggle("Infinite Jump", "InfJump")
-addToggle("Fullbright", "Fullbright")
-addToggle("NoClip", "NoClip")
-addToggle("Fly", "Fly")
-addCycle("Скорость полёта", "FlySpeed", {30,55,90,150})
-addToggle("Hitbox Expander", "Hitbox", applyHitbox)
-addCycle("Размер хитбокса", "HitboxSize", {6,9,12,16,20}, function(v) return v .. "ст" end, applyHitbox)
+-- ПОЛОСА 3: FOV
+local r3 = addRow("FOV")
+addToggle(r3, "Менять", "FovOn")
+addCycle(r3, "Режим", "FovMode", {"Abs","Mult"}, function(v) return v=="Abs" and "Абсолют" or "Множ" end)
+addCycle(r3, "Знач", "FovValue", {0,70,80,90,100,110}, function(v) return v==0 and "как в игре" or tostring(v) end)
+addCycle(r3, "Множ", "FovMult", {1.1,1.2,1.3,1.5,2}, function(v) return "x"..v end)
+addToggle(r3, "Не в прицеле", "FovSkipADS")
 
-addHeader("ПРОЧЕЕ")
-local unloadBtn = addRow("Unload скрипта")
-unloadBtn.Text, unloadBtn.BackgroundColor3 = "ВЫКЛ", Color3.fromRGB(150,50,50)
+-- ПОЛОСА 4: МИСК
+local r4 = addRow("МИСК")
+addToggle(r4, "Speed", "SpeedOn")
+addCycle(r4, "Скор", "Speed", {16,22,28,36,50})
+addToggle(r4, "Jump", "JumpOn")
+addCycle(r4, "Прыж", "JumpPower", {50,75,100,150})
+addToggle(r4, "InfJump", "InfJump")
+addToggle(r4, "Fullbright", "Fullbright")
+addToggle(r4, "NoClip", "NoClip")
+addToggle(r4, "Fly", "Fly")
 
--- перетаскивание (мышь + тач)
+-- ПОЛОСА 5: ПРОЧЕЕ
+local r5 = addRow("ПРОЧЕЕ")
+addCycle(r5, "Полёт", "FlySpeed", {30,55,90,150})
+addToggle(r5, "Hitbox", "Hitbox", applyHitbox)
+addCycle(r5, "Размер", "HitboxSize", {6,9,12,16,20}, function(v) return v.."ст" end, applyHitbox)
+addCycle(r5, "Чувств", "AimMouseSens", {0.3,0.5,0.8,1.2}, function(v) return tostring(v) end)
+addAction(r5, "Unload", function() end)
+
+-- масштаб под экран + диагностика
+local function updateScale()
+    local cam = getCam()
+    local vp = (cam and cam.ViewportSize) or Vector2.new(800, 450)
+    Scale.Scale = math.clamp(math.min(1, (vp.X - 16) / W, (vp.Y - 40) / 200), 0.45, 1)
+end
+
+task.spawn(function()
+    while Diag.Parent do
+        updateScale()
+        local cam = getCam()
+        Diag.Text = string.format("Drawing:%s игроков:%d ESP:%d цель:%s | FOV игры:%s мой:%s",
+            HAS_DRAWING and "да" or "нет", #Players:GetPlayers(), espCount, aimName,
+            cam and math.floor(cam.FieldOfView) or "?",
+            Config.FovOn and (Config.FovMode == "Mult" and ("x"..Config.FovMult) or tostring(Config.FovValue)) or "выкл")
+        task.wait(0.3)
+    end
+end)
+updateScale()
+
+-- перетаскивание
 local dragging, dragStart, startPos
 local function startDrag(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1
@@ -579,9 +610,7 @@ local function startDrag(input)
     end
 end
 bind(Title.InputBegan, startDrag)
-bind(Panel.InputBegan, function(input)
-    if not dragging then startDrag(input) end
-end)
+bind(Panel.InputBegan, function(input) if not dragging then startDrag(input) end end)
 bind(UserInputService.InputChanged, function(input)
     if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement
     or input.UserInputType == Enum.UserInputType.Touch) then
@@ -595,11 +624,12 @@ bind(UserInputService.InputEnded, function(input)
     or input.UserInputType == Enum.UserInputType.Touch then dragging = false end
 end)
 
+local fullH = Panel.Size.Y.Offset
 local minimized = false
 Min.MouseButton1Click:Connect(function()
     minimized = not minimized
     Content.Visible = not minimized
-    Panel.Size = minimized and UDim2.fromOffset(248, 30) or UDim2.fromOffset(248, 402)
+    Panel.Size = minimized and UDim2.fromOffset(W, 30) or UDim2.fromOffset(W, fullH)
     Min.Text = minimized and "□" or "_"
 end)
 
@@ -616,9 +646,7 @@ local function unload()
     pcall(function() if espGui then espGui:Destroy() end end)
     getgenv().KontraVenice_Unload = nil
 end
-
 getgenv().KontraVenice_Unload = unload
-unloadBtn.MouseButton1Click:Connect(unload)
+Kill.MouseButton1Click:Connect(unload)
 
-print("[Kontra | Venice v2] OK. Drawing:", HAS_DRAWING, "| игроков:", #Players:GetPlayers(),
-      "| камера:", getCam() and "есть" or "нет")
+print("[Kontra | Venice v3] OK. Drawing:", HAS_DRAWING, "| игроков:", #Players:GetPlayers())
